@@ -9,7 +9,7 @@ import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import { User } from '../users/entities/user.entity';
-import { PasswordResetOtp } from './entities/password-reset-otp.entity';
+// import { PasswordResetOtp } from './entities/password-reset-otp.entity';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { EmailService } from '../email/email.service';
