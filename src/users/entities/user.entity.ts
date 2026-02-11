@@ -62,6 +62,9 @@ export class User {
   @Column({ nullable: true })
   licenseNumber?: string;
 
+  @Column({ nullable: true })
+  paystackRecipientCode?: string;
+
   @Column({ default: true })
   isActive: boolean;
 

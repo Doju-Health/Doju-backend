@@ -1,0 +1,99 @@
+import {
+  Injectable,
+  ForbiddenException,
+  NotFoundException,
+  BadRequestException,
+} from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import type { Express } from 'express';
+import { Product } from './entities/product-entity';
+import { ProductCategory } from './entities/product-category.entity';
+import { CreateProductDto } from './dto/create-product.dto';
+import { UpdateProductDto } from './dto/update-product.dto';
+import { User } from 'src/users/entities/user.entity';
+import { CloudinaryService } from 'src/common/services/cloudinary.service';
+
+@Injectable()
+export class ProductsService {
+  constructor(
+    @InjectRepository(Product)
+    private productRepo: Repository<Product>,
+    @InjectRepository(ProductCategory)
+    private categoryRepo: Repository<ProductCategory>,
+    private cloudinaryService: CloudinaryService,
+  ) {}
+
+  async create(
+    dto: CreateProductDto,
+    seller: User,
+    file?: Express.Multer.File,
+  ) {
+    // Verify category exists
+    const category = await this.categoryRepo.findOne({
+      where: { id: dto.categoryId, isActive: true },
+    });
+
+    if (!category) {
+      throw new BadRequestException('Category not found or is inactive');
+    }
+
+    let imageUrl = dto.imageUrl;
+
+    if (file) {
+      imageUrl = await this.cloudinaryService.uploadImage(file);
+    }
+
+    const product = this.productRepo.create({
+      name: dto.name,
+      description: dto.description,
+      price: dto.price,
+      stock: dto.stock,
+      imageUrl,
+      seller,
+      category,
+    });
+
+    return this.productRepo.save(product);
+  }
+
+  async findAll() {
+    return this.productRepo.find({
+      where: { isActive: true },
+    });
+  }
+
+  async findOne(id: string) {
+    const product = await this.productRepo.findOne({
+      where: { id, isActive: true },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    return product;
+  }
+
+  async update(
+    id: string,
+    dto: UpdateProductDto,
+    user: User,
+    file?: Express.Multer.File,
+  ) {
+    const product = await this.findOne(id);
+
+    if (product.seller.id !== user.id) {
+      throw new ForbiddenException('You are not the seller of this product');
+    }
+
+    let imageUrl = dto.imageUrl || product.imageUrl;
+
+    if (file) {
+      imageUrl = await this.cloudinaryService.uploadImage(file);
+    }
+
+    Object.assign(product, { ...dto, imageUrl });
+    return this.productRepo.save(product);
+  }
+}

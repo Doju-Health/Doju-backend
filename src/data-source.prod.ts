@@ -1,11 +1,16 @@
 import 'dotenv/config';
 import 'reflect-metadata';
 import { DataSource } from 'typeorm';
+import { User } from './users/entities/user.entity';
+import { Product } from './products/entities/product-entity';
+import { ProductCategory } from './products/entities/product-category.entity';
+import { Order } from './orders/entities/order.entity';
+import { Payment } from './payment/entities/payment.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
   url: process.env.DATABASE_URL,
-  entities: ['dist/**/*.entity.js'],
+  entities: [User, Product, ProductCategory, Order, Payment],
   migrations: ['dist/migrations/*.js'],
   synchronize: false,
   schema: 'public',
