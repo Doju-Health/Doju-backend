@@ -83,7 +83,6 @@ export class AuthController {
         value: {
           email: 'john@example.com',
           password: 'SecurePass123',
-          role: 'buyer',
         },
       },
       seller: {
@@ -91,7 +90,6 @@ export class AuthController {
         value: {
           email: 'jane@example.com',
           password: 'SecurePass123',
-          role: 'seller',
         },
       },
     },

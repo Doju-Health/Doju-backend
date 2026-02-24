@@ -7,9 +7,9 @@ import {
   Patch,
   UseGuards,
   UseInterceptors,
-  UploadedFile,
+  UploadedFiles,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FilesInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
   ApiOperation,
@@ -17,6 +17,7 @@ import {
   ApiBearerAuth,
   ApiConsumes,
   ApiParam,
+  ApiBody,
   ApiOkResponse,
   ApiCreatedResponse,
   ApiBadRequestResponse,
@@ -54,6 +55,28 @@ export class ProductsController {
     return this.productsService.findAll();
   }
 
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SELLER)
+  @Get('me')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get current seller products',
+    description: 'Retrieve all active products created by the logged-in seller.',
+  })
+  @ApiOkResponse({
+    description: 'Successfully retrieved seller products',
+    type: [ProductResponseDto],
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Missing or invalid JWT token',
+  })
+  @ApiForbiddenResponse({
+    description: 'User does not have seller role',
+  })
+  getMyProducts(@CurrentUser() user: User) {
+    return this.productsService.findBySeller(user.id);
+  }
+
   @Get(':id')
   @ApiParam({
     name: 'id',
@@ -77,14 +100,34 @@ export class ProductsController {
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.SELLER)
-  @UseInterceptors(FileInterceptor('image'))
+  @UseInterceptors(FilesInterceptor('images', 10))
   @Post()
   @ApiBearerAuth()
   @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        description: { type: 'string' },
+        price: { type: 'number' },
+        stock: { type: 'number' },
+        categoryId: { type: 'string', format: 'uuid' },
+        imageUrl: {
+          type: 'array',
+          items: { type: 'string' },
+        },
+        images: {
+          type: 'array',
+          items: { type: 'string', format: 'binary' },
+        },
+      },
+    },
+  })
   @ApiOperation({
     summary: 'Create new product with image upload',
     description:
-      'Create a new healthcare equipment product with optional image upload to Cloudinary. Requires seller role.',
+      'Create a new healthcare equipment product with optional image upload(s) to Cloudinary. Requires seller role.',
   })
   @ApiCreatedResponse({
     description: 'Product successfully created with image uploaded to Cloudinary',
@@ -108,18 +151,38 @@ export class ProductsController {
   })
   create(
     @Body() dto: CreateProductDto,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFiles() files: Express.Multer.File[],
     @CurrentUser() user: User,
   ) {
-    return this.productsService.create(dto, user, file);
+    return this.productsService.create(dto, user, files);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.SELLER)
-  @UseInterceptors(FileInterceptor('image'))
+  @UseInterceptors(FilesInterceptor('images', 10))
   @Patch(':id')
   @ApiBearerAuth()
   @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        description: { type: 'string' },
+        price: { type: 'number' },
+        stock: { type: 'number' },
+        categoryId: { type: 'string', format: 'uuid' },
+        imageUrl: {
+          type: 'array',
+          items: { type: 'string' },
+        },
+        images: {
+          type: 'array',
+          items: { type: 'string', format: 'binary' },
+        },
+      },
+    },
+  })
   @ApiParam({
     name: 'id',
     description: 'Product unique identifier (UUID)',
@@ -151,9 +214,9 @@ export class ProductsController {
   update(
     @Param('id') id: string,
     @Body() dto: UpdateProductDto,
-    @UploadedFile() file: Express.Multer.File,
+    @UploadedFiles() files: Express.Multer.File[],
     @CurrentUser() user: User,
   ) {
-    return this.productsService.update(id, dto, user, file);
+    return this.productsService.update(id, dto, user, files);
   }
 }

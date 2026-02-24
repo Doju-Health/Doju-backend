@@ -56,12 +56,14 @@ export class ProductResponseDto {
   };
 
   @ApiProperty({
-    example:
-      'https://res.cloudinary.com/doju/image/upload/v1234567890/doju/products/product.jpg',
-    description: 'Product image URL from Cloudinary',
+    example: [
+      'https://res.cloudinary.com/doju/image/upload/v1234567890/doju/products/product-1.jpg',
+      'https://res.cloudinary.com/doju/image/upload/v1234567890/doju/products/product-2.jpg',
+    ],
+    description: 'Product image URLs from Cloudinary',
     nullable: true,
   })
-  imageUrl?: string;
+  imageUrl?: string[];
 
   @ApiProperty({
     example: {

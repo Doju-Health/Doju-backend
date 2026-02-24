@@ -28,7 +28,10 @@ This document provides a comprehensive guide to the Products and Cloudinary endp
     "description": "High-quality portable oxygen concentrator with 2-hour battery life",
     "price": 499.99,
     "stock": 50,
-    "imageUrl": "https://res.cloudinary.com/doju/image/upload/v1234567890/doju/products/product.jpg",
+    "imageUrl": [
+      "https://res.cloudinary.com/doju/image/upload/v1234567890/doju/products/product-1.jpg",
+      "https://res.cloudinary.com/doju/image/upload/v1234567890/doju/products/product-2.jpg"
+    ],
     "seller": {
       "id": "seller-123",
       "fullName": "John Doe",
@@ -69,7 +72,10 @@ This document provides a comprehensive guide to the Products and Cloudinary endp
   "description": "High-quality portable oxygen concentrator with 2-hour battery life",
   "price": 499.99,
   "stock": 50,
-  "imageUrl": "https://res.cloudinary.com/doju/image/upload/v1234567890/doju/products/product.jpg",
+  "imageUrl": [
+    "https://res.cloudinary.com/doju/image/upload/v1234567890/doju/products/product-1.jpg",
+    "https://res.cloudinary.com/doju/image/upload/v1234567890/doju/products/product-2.jpg"
+  ],
   "seller": {
     "id": "seller-123",
     "fullName": "John Doe",
@@ -88,11 +94,55 @@ This document provides a comprehensive guide to the Products and Cloudinary endp
 
 ---
 
-### 3. Create Product with Image Upload
+### 3. Get Current Seller Products
+
+**GET** `/products/me`
+
+**Description:** Retrieve all active products created by the logged-in seller.
+
+**Authentication:** Bearer JWT Token (Required)
+
+**Query Parameters:** None
+
+**Response:**
+
+```json
+[
+  {
+    "id": "123e4567-e89b-12d3-a456-426614174000",
+    "name": "Portable Oxygen Concentrator",
+    "description": "High-quality portable oxygen concentrator with 2-hour battery life",
+    "price": 499.99,
+    "stock": 50,
+    "imageUrl": [
+      "https://res.cloudinary.com/doju/image/upload/v1234567890/doju/products/product-1.jpg",
+      "https://res.cloudinary.com/doju/image/upload/v1234567890/doju/products/product-2.jpg"
+    ],
+    "seller": {
+      "id": "seller-123",
+      "fullName": "John Doe",
+      "email": "john@example.com"
+    },
+    "isActive": true,
+    "createdAt": "2025-02-09T10:30:00Z",
+    "updatedAt": "2025-02-09T10:30:00Z"
+  }
+]
+```
+
+**Status Codes:**
+
+- `200 OK` - Successfully retrieved seller products
+- `401 Unauthorized` - Missing or invalid JWT token
+- `403 Forbidden` - User does not have seller role
+
+---
+
+### 4. Create Product with Image Upload
 
 **POST** `/products`
 
-**Description:** Create a new healthcare equipment product with optional image upload to Cloudinary. Requires seller role.
+**Description:** Create a new healthcare equipment product with optional image upload(s) to Cloudinary. Requires seller role.
 
 **Authentication:** Bearer JWT Token (Required)
 
@@ -113,9 +163,12 @@ price: number (required, minimum: 0)
 stock: number (required, minimum: 0)
   Example: 50
 
-image: file (optional)
+imageUrl: string[] (optional)
+  Example: ["https://example.com/image-1.jpg", "https://example.com/image-2.jpg"]
+
+images: file[] (optional)
   Accepted formats: jpg, jpeg, png, gif, webp
-  Max size: 5MB
+  Max size: 5MB each
 ```
 
 **Response:**
@@ -127,7 +180,10 @@ image: file (optional)
   "description": "High-quality portable oxygen concentrator with 2-hour battery life",
   "price": 499.99,
   "stock": 50,
-  "imageUrl": "https://res.cloudinary.com/doju/image/upload/v1234567890/doju/products/product.jpg",
+  "imageUrl": [
+    "https://res.cloudinary.com/doju/image/upload/v1234567890/doju/products/product-1.jpg",
+    "https://res.cloudinary.com/doju/image/upload/v1234567890/doju/products/product-2.jpg"
+  ],
   "seller": {
     "id": "current-user-id",
     "fullName": "Current User",
@@ -162,7 +218,7 @@ image: file (optional)
 
 **PATCH** `/products/{id}`
 
-**Description:** Update an existing healthcare equipment product. Only the seller who created the product can update it. Optional image upload replaces the previous image on Cloudinary.
+**Description:** Update an existing healthcare equipment product. Only the seller who created the product can update it. Optional image upload(s) replace the previous image(s) on Cloudinary.
 
 **Authentication:** Bearer JWT Token (Required)
 
@@ -188,9 +244,12 @@ price: number (optional, minimum: 0)
 stock: number (optional, minimum: 0)
   Example: 75
 
-image: file (optional)
+imageUrl: string[] (optional)
+  Example: ["https://example.com/image-1.jpg", "https://example.com/image-2.jpg"]
+
+images: file[] (optional)
   Accepted formats: jpg, jpeg, png, gif, webp
-  Max size: 5MB
+  Max size: 5MB each
 ```
 
 **Response:**
@@ -202,7 +261,10 @@ image: file (optional)
   "description": "Updated description with new features",
   "price": 599.99,
   "stock": 75,
-  "imageUrl": "https://res.cloudinary.com/doju/image/upload/v1234567891/doju/products/product-updated.jpg",
+  "imageUrl": [
+    "https://res.cloudinary.com/doju/image/upload/v1234567891/doju/products/product-updated-1.jpg",
+    "https://res.cloudinary.com/doju/image/upload/v1234567891/doju/products/product-updated-2.jpg"
+  ],
   "seller": {
     "id": "current-user-id",
     "fullName": "Current User",
@@ -349,7 +411,8 @@ curl -X POST http://localhost:3000/products \
   -F "description=High-quality portable oxygen concentrator" \
   -F "price=499.99" \
   -F "stock=50" \
-  -F "image=@/path/to/image.jpg"
+  -F "images=@/path/to/image-1.jpg" \
+  -F "images=@/path/to/image-2.jpg"
 ```
 
 ---
@@ -420,11 +483,11 @@ http://localhost:3000
 - Minimum value: 0
 - Recommended: Integer value
 
-### Product Image
+### Product Images
 
 - Optional
 - Supported formats: jpg, jpeg, png, gif, webp
-- Maximum file size: 5MB
+- Maximum file size: 5MB each
 - Recommended dimensions: 800x600px or larger
 
 ---

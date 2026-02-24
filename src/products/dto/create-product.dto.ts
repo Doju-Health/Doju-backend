@@ -4,6 +4,7 @@ import {
   Min,
   IsOptional,
   IsString,
+  IsArray,
   IsUUID,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
@@ -51,10 +52,14 @@ export class CreateProductDto {
   categoryId: string;
 
   @ApiPropertyOptional({
-    example: 'https://example.com/image.jpg',
-    description: 'Optional image URL for the product',
+    example: [
+      'https://example.com/image-1.jpg',
+      'https://example.com/image-2.jpg',
+    ],
+    description: 'Optional image URLs for the product',
   })
   @IsOptional()
-  @IsString()
-  imageUrl?: string;
+  @IsArray()
+  @IsString({ each: true })
+  imageUrl?: string[];
 }

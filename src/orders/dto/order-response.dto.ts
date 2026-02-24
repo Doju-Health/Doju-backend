@@ -27,7 +27,7 @@ export class OrderResponseDto {
       id: 'product-123',
       name: 'Portable Oxygen Concentrator',
       price: 499.99,
-      imageUrl: 'https://example.com/image.jpg',
+      imageUrl: ['https://example.com/image-1.jpg'],
     },
     description: 'Product information',
   })
@@ -35,7 +35,7 @@ export class OrderResponseDto {
     id: string;
     name: string;
     price: number;
-    imageUrl?: string;
+    imageUrl?: string[];
   };
 
   @ApiProperty({

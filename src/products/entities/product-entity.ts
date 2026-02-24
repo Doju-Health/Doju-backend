@@ -27,8 +27,8 @@ export class Product {
   @Column()
   stock: number;
 
-  @Column('text', { nullable: true })
-  imageUrl?: string;
+  @Column('text', { array: true, nullable: true })
+  imageUrl?: string[];
 
   @ManyToOne(() => User, { eager: true })
   seller: User;

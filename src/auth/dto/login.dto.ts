@@ -6,8 +6,8 @@ export class LoginDto {
     @IsEmail()
     email: string;
 
-    @IsEnum(UserRole)
-    role: UserRole
+    // @IsEnum(UserRole)
+    // role: UserRole
 
     @IsString()
     @MinLength(6)

@@ -27,7 +27,7 @@ export class ProductsService {
   async create(
     dto: CreateProductDto,
     seller: User,
-    file?: Express.Multer.File,
+    files?: Express.Multer.File[],
   ) {
     // Verify category exists
     const category = await this.categoryRepo.findOne({
@@ -40,8 +40,10 @@ export class ProductsService {
 
     let imageUrl = dto.imageUrl;
 
-    if (file) {
-      imageUrl = await this.cloudinaryService.uploadImage(file);
+    if (files && files.length > 0) {
+      imageUrl = await Promise.all(
+        files.map((file) => this.cloudinaryService.uploadImage(file)),
+      );
     }
 
     const product = this.productRepo.create({
@@ -63,6 +65,12 @@ export class ProductsService {
     });
   }
 
+  async findBySeller(sellerId: string) {
+    return this.productRepo.find({
+      where: { seller: { id: sellerId }, isActive: true },
+    });
+  }
+
   async findOne(id: string) {
     const product = await this.productRepo.findOne({
       where: { id, isActive: true },
@@ -79,7 +87,7 @@ export class ProductsService {
     id: string,
     dto: UpdateProductDto,
     user: User,
-    file?: Express.Multer.File,
+    files?: Express.Multer.File[],
   ) {
     const product = await this.findOne(id);
 
@@ -87,10 +95,12 @@ export class ProductsService {
       throw new ForbiddenException('You are not the seller of this product');
     }
 
-    let imageUrl = dto.imageUrl || product.imageUrl;
+    let imageUrl = dto.imageUrl ?? product.imageUrl;
 
-    if (file) {
-      imageUrl = await this.cloudinaryService.uploadImage(file);
+    if (files && files.length > 0) {
+      imageUrl = await Promise.all(
+        files.map((file) => this.cloudinaryService.uploadImage(file)),
+      );
     }
 
     Object.assign(product, { ...dto, imageUrl });

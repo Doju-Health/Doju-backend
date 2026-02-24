@@ -84,7 +84,7 @@ export class AuthService {
    * Login user
    */
   async login(loginDto: LoginDto) {
-    const { email, password, role } = loginDto;
+    const { email, password } = loginDto;
 
     // Find user by email
     const user = await this.userRepo.findOne({ where: { email } });
@@ -99,9 +99,9 @@ export class AuthService {
     }
 
     // Verify role matches
-    if (user.role !== role) {
-      throw new UnauthorizedException('Role does not match');
-    }
+    // if (user.role !== role) {
+    //   throw new UnauthorizedException('Role does not match');
+    // }
 
     // Check if user is active
     if (!user.isActive) {
