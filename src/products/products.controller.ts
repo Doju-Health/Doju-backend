@@ -8,6 +8,9 @@ import {
   UseGuards,
   UseInterceptors,
   UploadedFiles,
+  Query,
+  DefaultValuePipe,
+  ParseIntPipe,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import {
@@ -19,6 +22,7 @@ import {
   ApiParam,
   ApiBody,
   ApiOkResponse,
+  ApiQuery,
   ApiCreatedResponse,
   ApiBadRequestResponse,
   ApiUnauthorizedResponse,
@@ -30,6 +34,7 @@ import { ProductsService } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductResponseDto } from './dto/product-response.dto';
+import { PaginatedProductsResponseDto } from './dto/paginated-products-response.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth-guard';
 import { RolesGuard } from 'src/common/guards/role.guards';
 import { Roles } from 'src/common/decorators/roles.decorator';
@@ -45,14 +50,40 @@ export class ProductsController {
   @Get()
   @ApiOperation({
     summary: 'Get all active products',
-    description: 'Retrieve all active healthcare equipment products from the marketplace',
+    description:
+      'Retrieve active healthcare equipment products with pagination and optional category filter',
   })
   @ApiOkResponse({
     description: 'Successfully retrieved all products',
-    type: [ProductResponseDto],
+    type: PaginatedProductsResponseDto,
   })
-  getAll() {
-    return this.productsService.findAll();
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    example: 1,
+    description: 'Page number (minimum 1)',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    example: 10,
+    description: 'Items per page (minimum 1, maximum 100)',
+  })
+  @ApiQuery({
+    name: 'categoryId',
+    required: false,
+    type: String,
+    example: '123e4567-e89b-12d3-a456-426614174000',
+    description: 'Filter products by category UUID',
+  })
+  getAll(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+    @Query('categoryId') categoryId?: string,
+  ) {
+    return this.productsService.findAll({ page, limit, categoryId });
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
