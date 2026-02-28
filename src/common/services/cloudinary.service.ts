@@ -17,12 +17,30 @@ export class CloudinaryService {
     file: Express.Multer.File,
     folder: string = 'doju/products',
   ): Promise<string> {
-    try {
-      if (!file) {
-        throw new BadRequestException('No file provided');
-      }
+    if (!file) {
+      throw new BadRequestException('No file provided');
+    }
 
-      return new Promise((resolve, reject) => {
+    return this.uploadSingle(file, folder);
+  }
+
+  async uploadImages(
+    files: Express.Multer.File[],
+    folder: string = 'doju/products',
+  ): Promise<string[]> {
+    if (!files || files.length === 0) {
+      throw new BadRequestException('No files provided');
+    }
+
+    return Promise.all(files.map((file) => this.uploadSingle(file, folder)));
+  }
+
+  private async uploadSingle(
+    file: Express.Multer.File,
+    folder: string,
+  ): Promise<string> {
+    try {
+      return await new Promise((resolve, reject) => {
         const uploadStream = cloudinary.uploader.upload_stream(
           {
             folder,
@@ -33,11 +51,15 @@ export class CloudinaryService {
               reject(
                 new BadRequestException(`Upload failed: ${error.message}`),
               );
-            } else if (result) {
-              resolve(result.secure_url);
-            } else {
-              reject(new BadRequestException('Upload failed: No result'));
+              return;
             }
+
+            if (!result) {
+              reject(new BadRequestException('Upload failed: No result'));
+              return;
+            }
+
+            resolve(result.secure_url);
           },
         );
 

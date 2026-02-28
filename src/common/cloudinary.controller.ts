@@ -3,14 +3,17 @@ import {
   Post,
   Delete,
   Param,
+  Body,
   UseGuards,
   UseInterceptors,
   UploadedFile,
+  UploadedFiles,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import {
   ApiTags,
   ApiOperation,
+  ApiBody,
   ApiResponse,
   ApiBearerAuth,
   ApiConsumes,
@@ -66,6 +69,71 @@ export class CloudinaryController {
     return {
       url,
       message: 'Image uploaded successfully',
+    };
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @UseInterceptors(FilesInterceptor('files', 10))
+  @Post('upload-multiple')
+  @ApiBearerAuth()
+  @ApiConsumes('multipart/form-data')
+  @ApiOperation({
+    summary: 'Upload multiple images to Cloudinary',
+    description:
+      'Upload multiple image files to Cloudinary cloud storage. Returns secure URLs for all uploaded images.',
+  })
+  @ApiBody({
+    schema: {
+      type: 'object',
+      properties: {
+        files: {
+          type: 'array',
+          items: { type: 'string', format: 'binary' },
+        },
+        folder: {
+          type: 'string',
+          example: 'doju/products',
+          description: 'Optional Cloudinary folder path',
+        },
+      },
+      required: ['files'],
+    },
+  })
+  @ApiCreatedResponse({
+    description: 'Images successfully uploaded to Cloudinary',
+    schema: {
+      example: {
+        urls: [
+          'https://res.cloudinary.com/doju/image/upload/v123/doju/products/image-1.jpg',
+          'https://res.cloudinary.com/doju/image/upload/v124/doju/products/image-2.jpg',
+        ],
+        count: 2,
+        message: 'Images uploaded successfully',
+      },
+    },
+  })
+  @ApiBadRequestResponse({
+    description: 'No files provided or one/more uploads failed',
+    schema: {
+      example: {
+        message: 'No files provided',
+        error: 'Bad Request',
+        statusCode: 400,
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Missing or invalid JWT token',
+  })
+  async uploadMultiple(
+    @UploadedFiles() files: Express.Multer.File[],
+    @Body('folder') folder?: string,
+  ) {
+    const urls = await this.cloudinaryService.uploadImages(files, folder);
+    return {
+      urls,
+      count: urls.length,
+      message: 'Images uploaded successfully',
     };
   }
 

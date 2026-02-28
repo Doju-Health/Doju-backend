@@ -13,6 +13,7 @@ import { PaymentsModule } from './payment/payment.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { CartModule } from './cart/cart.module';
 import { TrackingModule } from './tracking/tracking.module';
+import { SellerDashboardModule } from './seller-dashboard/seller-dashboard.module';
 
 @Module({
   imports: [
@@ -47,6 +48,7 @@ import { TrackingModule } from './tracking/tracking.module';
     PaymentsModule,
     CartModule,
     TrackingModule,
+    SellerDashboardModule,
   ],
   controllers: [AppController],
   providers: [AppService],
