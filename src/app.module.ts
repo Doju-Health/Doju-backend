@@ -11,6 +11,8 @@ import { OrdersModule } from './orders/orders.module';
 import { CommonModule } from './common/common.module';
 import { PaymentsModule } from './payment/payment.module';
 import { ScheduleModule } from '@nestjs/schedule';
+import { CartModule } from './cart/cart.module';
+import { TrackingModule } from './tracking/tracking.module';
 
 @Module({
   imports: [
@@ -43,6 +45,8 @@ import { ScheduleModule } from '@nestjs/schedule';
     CommonModule,
     ScheduleModule.forRoot(),
     PaymentsModule,
+    CartModule,
+    TrackingModule,
   ],
   controllers: [AppController],
   providers: [AppService],

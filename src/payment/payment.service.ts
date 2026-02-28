@@ -36,7 +36,7 @@ export class PaymentsService {
   async initiatePayment(dto: InitiatePaymentDto, buyer: User) {
     const order = await this.orderRepo.findOne({
       where: { id: dto.orderId },
-      relations: ['product', 'seller'],
+      relations: ['buyer', 'product', 'product.seller'],
     });
 
     if (!order) {

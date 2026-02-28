@@ -91,7 +91,7 @@ export class OrdersService {
   async findBySeller(sellerId: string): Promise<Order[]> {
     return this.orderRepo.find({
       where: { product: { seller: { id: sellerId } } },
-      relations: ['buyer', 'product'],
+      relations: ['buyer', 'product', 'product.seller'],
       order: { createdAt: 'DESC' },
     });
   }

@@ -7,6 +7,7 @@ import {
   IsArray,
   IsUUID,
 } from 'class-validator';
+import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateProductDto {
@@ -57,6 +58,34 @@ export class CreateProductDto {
       'https://example.com/image-2.jpg',
     ],
     description: 'Optional image URLs for the product',
+  })
+  @Transform(({ value }) => {
+    if (value === undefined || value === null || value === '') {
+      return undefined;
+    }
+
+    if (Array.isArray(value)) {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+
+      // Supports multipart text input like '["url1","url2"]'
+      if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          return Array.isArray(parsed) ? parsed : [value];
+        } catch {
+          return [value];
+        }
+      }
+
+      // Supports single URL string input
+      return [value];
+    }
+
+    return value;
   })
   @IsOptional()
   @IsArray()
