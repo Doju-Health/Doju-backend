@@ -31,7 +31,6 @@ import { CartItem } from './entities/cart-item.entity';
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT token' })
 @Controller('cart')
-@UseGuards(JwtAuthGuard)
 export class CartController {
   constructor(private readonly cartService: CartService) {}
 
@@ -48,7 +47,11 @@ export class CartController {
   })
   @ApiBadRequestResponse({ description: 'Invalid input or insufficient stock' })
   @ApiNotFoundResponse({ description: 'Product not found or inactive' })
-  async addToCart(@Body() dto: AddToCartDto, @CurrentUser() user: User) {
+  async addToCart(@Body() dto: AddToCartDto, @CurrentUser() user?: User) {
+      if (!user) {
+    // Frontend handles this in localStorage, nothing to do on backend
+    return { guest: true, message: 'Item noted, save to localStorage' };
+  }
     return this.cartService.addToCart(dto, user);
   }
 
@@ -72,7 +75,11 @@ export class CartController {
       },
     },
   })
-  async getCart(@CurrentUser() user: User) {
+  async getCart(@CurrentUser() user?: User) {
+     if (!user) {
+    // Tell frontend to read from localStorage
+    return { items: [], summary: { totalItems: 0, selectedItems: 0, subtotal: 0, total: 0 }, guest: true };
+  }
     return this.cartService.getCart(user);
   }
 
@@ -81,12 +88,17 @@ export class CartController {
    * GET /cart/count
    */
   @Get('count')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Get cart item count' })
   @ApiOkResponse({
     description: 'Cart count retrieved successfully',
     schema: { example: { count: 3 } },
   })
-  async getCartCount(@CurrentUser() user: User) {
+  async getCartCount(@CurrentUser() user?: User) {
+      if (!user) {
+    // Frontend handles this in localStorage, return 0 or guest flag
+    return { count: 0, guest: true };
+  }
     const count = await this.cartService.getCartCount(user);
     return { count };
   }
@@ -96,6 +108,7 @@ export class CartController {
    * PATCH /cart/:itemId
    */
   @Patch(':itemId')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Update cart item quantity or selection' })
   @ApiParam({
     name: 'itemId',
@@ -122,6 +135,7 @@ export class CartController {
    * DELETE /cart/:itemId
    */
   @Delete(':itemId')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Remove a single item from cart' })
   @ApiParam({
     name: 'itemId',
@@ -143,6 +157,7 @@ export class CartController {
    * DELETE /cart
    */
   @Delete()
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Clear all items from cart' })
   @ApiOkResponse({
     description: 'Cart cleared successfully',
@@ -158,6 +173,7 @@ export class CartController {
    * POST /cart/select-all
    */
   @Post('select-all')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Select or deselect all cart items' })
   @ApiBody({ type: SelectAllDto })
   @ApiOkResponse({
@@ -174,6 +190,7 @@ export class CartController {
    * GET /cart/validate
    */
   @Get('validate')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Validate selected cart items before checkout' })
   @ApiOkResponse({
     description: 'Validation completed',
@@ -193,6 +210,7 @@ export class CartController {
    * POST /cart/checkout
    */
   @Post('checkout')
+  @UseGuards(JwtAuthGuard)
   @ApiOperation({ summary: 'Checkout selected cart items and create orders' })
   @ApiBody({ type: CheckoutDto })
   @ApiCreatedResponse({
