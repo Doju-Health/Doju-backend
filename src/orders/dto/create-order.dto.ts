@@ -5,6 +5,8 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  IsArray,
+  ArrayNotEmpty,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -37,6 +39,48 @@ export class CreateOrderDto {
   @ApiPropertyOptional({
     example: 'Please handle with care - fragile medical equipment',
     description: 'Special notes for the order',
+  })
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
+export class CreateBulkOrdersDto {
+  @ApiProperty({
+    example: [
+      '123e4567-e89b-12d3-a456-426614174000',
+      '223e4567-e89b-12d3-a456-426614174111',
+    ],
+    description: 'Array of product UUIDs to order',
+    type: [String],
+  })
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsUUID('4', { each: true })
+  productIds: string[];
+
+  @ApiProperty({
+    example: [2, 1],
+    description: 'Array of quantities matching each product ID by index',
+    type: [Number],
+  })
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsNumber({}, { each: true })
+  @Min(1, { each: true })
+  quantities: number[];
+
+  @ApiPropertyOptional({
+    example: '123 Main Street, New York, NY 10001',
+    description: 'Delivery address applied to all orders in this request',
+  })
+  @IsOptional()
+  @IsString()
+  deliveryAddress?: string;
+
+  @ApiPropertyOptional({
+    example: 'Please deliver all items together if possible',
+    description: 'Order notes applied to all orders in this request',
   })
   @IsOptional()
   @IsString()

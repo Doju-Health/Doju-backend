@@ -9,7 +9,7 @@ import { Repository } from 'typeorm';
 import { Order } from './entities/order.entity';
 import { Product } from 'src/products/entities/product-entity';
 import { User } from 'src/users/entities/user.entity';
-import { CreateOrderDto } from './dto/create-order.dto';
+import { CreateOrderDto, CreateBulkOrdersDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { OrderStatus, PaymentStatus } from './enums/order.enum';
 
@@ -65,6 +65,63 @@ export class OrdersService {
     // await this.productRepo.save(product);
 
     return savedOrder;
+  }
+
+  async createBulk(dto: CreateBulkOrdersDto, buyer: User): Promise<Order[]> {
+    if (dto.productIds.length !== dto.quantities.length) {
+      throw new BadRequestException(
+        'productIds and quantities must have the same length',
+      );
+    }
+
+    if (dto.productIds.length === 0) {
+      throw new BadRequestException('At least one product is required');
+    }
+
+    return this.orderRepo.manager.transaction(async (manager) => {
+      const createdOrders: Order[] = [];
+
+      for (let i = 0; i < dto.productIds.length; i++) {
+        const productId = dto.productIds[i];
+        const quantity = dto.quantities[i];
+
+        const product = await manager.findOne(Product, {
+          where: { id: productId, isActive: true },
+          relations: ['seller'],
+        });
+
+        if (!product) {
+          throw new NotFoundException(
+            `Product not found or is inactive: ${productId}`,
+          );
+        }
+
+        if (product.stock < quantity) {
+          throw new BadRequestException(
+            `Insufficient stock for "${product.name}". Available: ${product.stock}, Requested: ${quantity}`,
+          );
+        }
+
+        const totalPrice = Number(product.price) * quantity;
+
+        const order = manager.create(Order, {
+          buyer,
+          product,
+          quantity,
+          unitPrice: product.price,
+          totalPrice,
+          deliveryAddress: dto.deliveryAddress,
+          notes: dto.notes,
+          orderStatus: OrderStatus.PENDING,
+          paymentStatus: PaymentStatus.PENDING,
+        });
+
+        const savedOrder = await manager.save(Order, order);
+        createdOrders.push(savedOrder);
+      }
+
+      return createdOrders;
+    });
   }
 
   async findAll(buyerId?: string): Promise<Order[]> {

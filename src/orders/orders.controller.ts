@@ -24,7 +24,7 @@ import {
   ApiBody,
 } from '@nestjs/swagger';
 import { OrdersService } from './orders.service';
-import { CreateOrderDto } from './dto/create-order.dto';
+import { CreateOrderDto, CreateBulkOrdersDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { OrderResponseDto } from './dto/order-response.dto';
 import { MarkShippedDto } from './dto/mark-shipped.dto';
@@ -68,6 +68,43 @@ export class OrdersController {
   })
   async create(@Body() dto: CreateOrderDto, @CurrentUser() buyer: User) {
     return this.ordersService.create(dto, buyer);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('bulk')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Create multiple orders',
+    description:
+      'Create multiple orders in one request using paired arrays of productIds and quantities.',
+  })
+  @ApiBody({ type: CreateBulkOrdersDto })
+  @ApiCreatedResponse({
+    description: 'Orders successfully created',
+    type: [OrderResponseDto],
+  })
+  @ApiBadRequestResponse({
+    description:
+      'Invalid input, mismatched array lengths, or insufficient stock',
+    schema: {
+      example: {
+        message: 'productIds and quantities must have the same length',
+        error: 'Bad Request',
+        statusCode: 400,
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Missing or invalid JWT token',
+  })
+  @ApiNotFoundResponse({
+    description: 'One or more products not found',
+  })
+  async createBulk(
+    @Body() dto: CreateBulkOrdersDto,
+    @CurrentUser() buyer: User,
+  ) {
+    return this.ordersService.createBulk(dto, buyer);
   }
 
   @UseGuards(JwtAuthGuard)
