@@ -17,10 +17,10 @@ export class RegisterDto {
     @IsNotEmpty()
     phoneNumber: string;
 
-    @IsNotEmpty()
+    @IsOptional()
     address: string;
 
-    @IsNotEmpty()
+    @IsOptional()
     country: string;
 
     @IsOptional()
