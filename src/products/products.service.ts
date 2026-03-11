@@ -139,4 +139,17 @@ export class ProductsService {
     Object.assign(product, { ...dto, imageUrl });
     return this.productRepo.save(product);
   }
+
+  async remove(id: string, user: User) {
+    const product = await this.findOne(id);
+
+    if (product.seller.id !== user.id) {
+      throw new ForbiddenException('You are not the seller of this product');
+    }
+
+    product.isActive = false;
+    await this.productRepo.save(product);
+
+    return { message: 'Product deleted successfully' };
+  }
 }

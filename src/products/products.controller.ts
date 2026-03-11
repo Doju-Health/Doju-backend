@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   Patch,
+  Delete,
   UseGuards,
   UseInterceptors,
   UploadedFiles,
@@ -249,5 +250,37 @@ export class ProductsController {
     @CurrentUser() user: User,
   ) {
     return this.productsService.update(id, dto, user, files);
+  }
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.SELLER)
+  @Delete(':id')
+  @ApiBearerAuth()
+  @ApiParam({
+    name: 'id',
+    description: 'Product unique identifier (UUID)',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiOperation({
+    summary: 'Delete product',
+    description:
+      'Soft delete a product by marking it inactive. Only the seller who created the product can delete it.',
+  })
+  @ApiOkResponse({
+    description: 'Product deleted successfully',
+    schema: { example: { message: 'Product deleted successfully' } },
+  })
+  @ApiUnauthorizedResponse({
+    description: 'Missing or invalid JWT token',
+  })
+  @ApiForbiddenResponse({
+    description:
+      'User does not have seller role or is not the product owner',
+  })
+  @ApiNotFoundResponse({
+    description: 'Product not found',
+  })
+  remove(@Param('id') id: string, @CurrentUser() user: User) {
+    return this.productsService.remove(id, user);
   }
 }

@@ -8,6 +8,9 @@ import {
   Param,
   UseGuards,
   Query,
+  DefaultValuePipe,
+  ParseIntPipe,
+  ParseUUIDPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -27,6 +30,8 @@ import { OrdersService } from './orders.service';
 import { CreateOrderDto, CreateBulkOrdersDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { OrderResponseDto } from './dto/order-response.dto';
+import { PaginatedOrdersResponseDto } from './dto/paginated-orders-response.dto';
+import { BulkOrderResponseDto } from './dto/bulk-order-response.dto';
 import { MarkShippedDto } from './dto/mark-shipped.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth-guard';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
@@ -81,7 +86,7 @@ export class OrdersController {
   @ApiBody({ type: CreateBulkOrdersDto })
   @ApiCreatedResponse({
     description: 'Orders successfully created',
-    type: [OrderResponseDto],
+    type: BulkOrderResponseDto,
   })
   @ApiBadRequestResponse({
     description:
@@ -116,13 +121,31 @@ export class OrdersController {
   })
   @ApiOkResponse({
     description: 'Successfully retrieved user orders',
-    type: [OrderResponseDto],
+    type: PaginatedOrdersResponseDto,
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    example: 1,
+    description: 'Page number (minimum 1)',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    example: 10,
+    description: 'Items per page (minimum 1, maximum 100)',
   })
   @ApiUnauthorizedResponse({
     description: 'Missing or invalid JWT token',
   })
-  async getMyOrders(@CurrentUser() user: User) {
-    return this.ordersService.findByBuyer(user.id);
+  async getMyOrders(
+    @CurrentUser() user: User,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+  ) {
+    return this.ordersService.findByBuyer({ buyerId: user.id, page, limit });
   }
 
   @Get()
@@ -138,10 +161,49 @@ export class OrdersController {
   })
   @ApiOkResponse({
     description: 'Successfully retrieved all orders',
-    type: [OrderResponseDto],
+    type: PaginatedOrdersResponseDto,
   })
-  async findAll(@Query('buyerId') buyerId?: string) {
-    return this.ordersService.findAll(buyerId);
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    example: 1,
+    description: 'Page number (minimum 1)',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    example: 10,
+    description: 'Items per page (minimum 1, maximum 100)',
+  })
+  async findAll(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+    @Query('buyerId') buyerId?: string,
+  ) {
+    return this.ordersService.findAll({ buyerId, page, limit });
+  }
+
+  @Get('bulk/:bulkOrderId')
+  @ApiParam({
+    name: 'bulkOrderId',
+    description: 'Bulk order identifier (bulk-<uuid>)',
+    example: 'bulk-123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiOperation({
+    summary: 'Get bulk order by ID',
+    description: 'Retrieve all orders that share the same bulk order identifier',
+  })
+  @ApiOkResponse({
+    description: 'Successfully retrieved the bulk order',
+    type: BulkOrderResponseDto,
+  })
+  @ApiNotFoundResponse({
+    description: 'Bulk order not found',
+  })
+  async findBulkOrder(@Param('bulkOrderId') bulkOrderId: string) {
+    return this.ordersService.findByBulkOrderId(bulkOrderId);
   }
 
   @Get(':id')
@@ -161,46 +223,46 @@ export class OrdersController {
   @ApiNotFoundResponse({
     description: 'Order not found',
   })
-  async findOne(@Param('id') id: string) {
+  async findOne(@Param('id', new ParseUUIDPipe()) id: string) {
     return this.ordersService.findOne(id);
   }
 
-  @UseGuards(JwtAuthGuard)
-  @Patch(':id')
-  @ApiBearerAuth()
-  @ApiParam({
-    name: 'id',
-    description: 'Order unique identifier (UUID)',
-    example: '123e4567-e89b-12d3-a456-426614174000',
-  })
-  @ApiOperation({
-    summary: 'Update order',
-    description:
-      'Update order details (delivery address, notes, status). Only order owner can update.',
-  })
-  @ApiOkResponse({
-    description: 'Order successfully updated',
-    type: OrderResponseDto,
-  })
-  @ApiBadRequestResponse({
-    description: 'Invalid order data or cannot update order in current status',
-  })
-  @ApiUnauthorizedResponse({
-    description: 'Missing or invalid JWT token',
-  })
-  @ApiForbiddenResponse({
-    description: 'You can only update your own orders',
-  })
-  @ApiNotFoundResponse({
-    description: 'Order not found',
-  })
-  async update(
-    @Param('id') id: string,
-    @Body() dto: UpdateOrderDto,
-    @CurrentUser() user: User,
-  ) {
-    return this.ordersService.update(id, dto, user);
-  }
+  // @UseGuards(JwtAuthGuard)
+  // @Patch(':id')
+  // @ApiBearerAuth()
+  // @ApiParam({
+  //   name: 'id',
+  //   description: 'Order unique identifier (UUID)',
+  //   example: '123e4567-e89b-12d3-a456-426614174000',
+  // })
+  // @ApiOperation({
+  //   summary: 'Update order',
+  //   description:
+  //     'Update order details (delivery address, notes, status). Only order owner can update.',
+  // })
+  // @ApiOkResponse({
+  //   description: 'Order successfully updated',
+  //   type: OrderResponseDto,
+  // })
+  // @ApiBadRequestResponse({
+  //   description: 'Invalid order data or cannot update order in current status',
+  // })
+  // @ApiUnauthorizedResponse({
+  //   description: 'Missing or invalid JWT token',
+  // })
+  // @ApiForbiddenResponse({
+  //   description: 'You can only update your own orders',
+  // })
+  // @ApiNotFoundResponse({
+  //   description: 'Order not found',
+  // })
+  // async update(
+  //   @Param('id') id: string,
+  //   @Body() dto: UpdateOrderDto,
+  //   @CurrentUser() user: User,
+  // ) {
+  //   return this.ordersService.update(id, dto, user);
+  // }
 
   @UseGuards(JwtAuthGuard)
   @Delete(':id')
@@ -334,13 +396,31 @@ export class OrdersController {
   })
   @ApiOkResponse({
     description: 'Successfully retrieved seller orders',
-    type: [OrderResponseDto],
+    type: PaginatedOrdersResponseDto,
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    example: 1,
+    description: 'Page number (minimum 1)',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    example: 10,
+    description: 'Items per page (minimum 1, maximum 100)',
   })
   @ApiUnauthorizedResponse({
     description: 'Missing or invalid JWT token',
   })
-  async getSellerOrders(@CurrentUser() seller: User) {
-    return this.ordersService.findBySeller(seller.id);
+  async getSellerOrders(
+    @CurrentUser() seller: User,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+  ) {
+    return this.ordersService.findBySeller({ sellerId: seller.id, page, limit });
   }
 
   @UseGuards(JwtAuthGuard)

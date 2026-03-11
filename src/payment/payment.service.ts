@@ -34,28 +34,80 @@ export class PaymentsService {
   // Initialize payment with Paystack
 
   async initiatePayment(dto: InitiatePaymentDto, buyer: User) {
-    const order = await this.orderRepo.findOne({
-      where: { id: dto.orderId },
-      relations: ['buyer', 'product', 'product.seller'],
-    });
+    if (!dto.orderId && !dto.bulkOrderId) {
+      throw new BadRequestException('orderId or bulkOrderId is required');
+    }
+
+    let order: Order | null = null;
+    let orders: Order[] = [];
+    let totalAmount = 0;
+    let bulkOrderId: string | undefined;
+
+    if (dto.bulkOrderId) {
+      orders = await this.orderRepo.find({
+        where: { bulkOrderId: dto.bulkOrderId },
+        relations: ['buyer', 'product', 'product.seller'],
+        order: { createdAt: 'DESC' },
+      });
+
+      if (orders.length === 0) {
+        throw new NotFoundException('Bulk order not found');
+      }
+
+      // Verify buyer owns all orders
+      const invalidOrder = orders.find((o) => o.buyer.id !== buyer.id);
+      if (invalidOrder) {
+        throw new BadRequestException('You can only pay for your own orders');
+      }
+
+      // Check status for any order in the bulk group
+      const paidOrder = orders.find((o) => o.paymentStatus === PaymentStatus.PAID);
+      if (paidOrder) {
+        throw new BadRequestException('One or more orders have already been paid');
+      }
+
+      const cancelledOrder = orders.find((o) => o.orderStatus === OrderStatus.CANCELLED);
+      if (cancelledOrder) {
+        throw new BadRequestException('Cannot pay for cancelled order');
+      }
+
+      totalAmount = orders.reduce(
+        (sum, o) => sum + Number(o.totalPrice),
+        0,
+      );
+      bulkOrderId = dto.bulkOrderId;
+      order = orders[0];
+    } else if (dto.orderId) {
+      order = await this.orderRepo.findOne({
+        where: { id: dto.orderId },
+        relations: ['buyer', 'product', 'product.seller'],
+      });
+
+      if (!order) {
+        throw new NotFoundException('Order not found');
+      }
+
+      // Verify buyer owns this order
+      if (order.buyer.id !== buyer.id) {
+        throw new BadRequestException('You can only pay for your own orders');
+      }
+
+      // Check if order is already paid
+      if (order.paymentStatus === PaymentStatus.PAID) {
+        throw new BadRequestException('Order has already been paid');
+      }
+
+      // Check if order is cancelled
+      if (order.orderStatus === OrderStatus.CANCELLED) {
+        throw new BadRequestException('Cannot pay for cancelled order');
+      }
+
+      totalAmount = Number(order.totalPrice);
+      orders = [order];
+    }
 
     if (!order) {
       throw new NotFoundException('Order not found');
-    }
-
-    // Verify buyer owns this order
-    if (order.buyer.id !== buyer.id) {
-      throw new BadRequestException('You can only pay for your own orders');
-    }
-
-    // Check if order is already paid
-    if (order.paymentStatus === PaymentStatus.PAID) {
-      throw new BadRequestException('Order has already been paid');
-    }
-
-    // Check if order is cancelled
-    if (order.orderStatus === OrderStatus.CANCELLED) {
-      throw new BadRequestException('Cannot pay for cancelled order');
     }
 
     try {
@@ -63,25 +115,36 @@ export class PaymentsService {
         `${this.paystackBaseUrl}/transaction/initialize`,
         {
           email: buyer.email,
-          amount: Math.round(order.totalPrice * 100), // Paystack expects amount in kobo (smallest currency unit)
+          amount: Math.round(totalAmount * 100), // Paystack expects amount in kobo (smallest currency unit)
           currency: 'NGN', // Change based on your currency
           reference: this.generateReference(),
           callback_url: dto.callbackUrl,
           metadata: {
-            orderId: order.id,
+            orderId: order?.id,
+            bulkOrderId,
+            orderIds: orders.map((o) => o.id),
             buyerId: buyer.id,
-            productId: order.product.id,
-            sellerId: order.product.seller.id,
+            productId: order?.product?.id,
+            sellerId: order?.product?.seller?.id,
             custom_fields: [
               {
                 display_name: 'Order ID',
                 variable_name: 'order_id',
-                value: order.id,
+                value: order?.id ?? '',
               },
+              ...(bulkOrderId
+                ? [
+                    {
+                      display_name: 'Bulk Order ID',
+                      variable_name: 'bulk_order_id',
+                      value: bulkOrderId,
+                    },
+                  ]
+                : []),
               {
                 display_name: 'Product',
                 variable_name: 'product_name',
-                value: order.product.name,
+                value: order?.product?.name ?? '',
               },
             ],
           },
@@ -101,7 +164,7 @@ export class PaymentsService {
       const payment = this.paymentRepo.create({
         order,
         buyer,
-        amount: order.totalPrice,
+        amount: totalAmount,
         reference,
         accessCode: access_code,
         status: PaymentStatus.PENDING,
@@ -166,12 +229,31 @@ export class PaymentsService {
         payment.escrowStatus = EscrowStatus.HELD;
         payment.escrowHeldAt = new Date();
 
-        // Update order status
-        payment.order.paymentStatus = PaymentStatus.PAID;
-        payment.order.orderStatus = OrderStatus.CONFIRMED;
-        payment.order.transactionId = reference;
+        const bulkOrderId = metadata?.bulkOrderId;
+        if (bulkOrderId) {
+          const bulkOrders = await this.orderRepo.find({
+            where: { bulkOrderId },
+          });
 
-        await this.orderRepo.save(payment.order);
+          if (bulkOrders.length === 0) {
+            throw new NotFoundException('Bulk order not found');
+          }
+
+          for (const order of bulkOrders) {
+            order.paymentStatus = PaymentStatus.PAID;
+            order.orderStatus = OrderStatus.CONFIRMED;
+            order.transactionId = reference;
+          }
+
+          await this.orderRepo.save(bulkOrders);
+        } else {
+          // Update order status
+          payment.order.paymentStatus = PaymentStatus.PAID;
+          payment.order.orderStatus = OrderStatus.CONFIRMED;
+          payment.order.transactionId = reference;
+
+          await this.orderRepo.save(payment.order);
+        }
       }
 
       await this.paymentRepo.save(payment);
@@ -212,23 +294,23 @@ export class PaymentsService {
   /**
    * Confirm delivery and release escrow to seller
    */
-  async confirmDeliveryAndRelease(orderId: string, buyer: User) {
-    const payment = await this.paymentRepo.findOne({
-      where: { order: { id: orderId } },
-      relations: [
-        'order',
-        'order.buyer',
-        'order.product',
-        'order.product.seller',
-      ],
+  async confirmDeliveryAndRelease(
+    orderId: string | undefined,
+    buyer: User,
+    bulkOrderId?: string,
+  ) {
+    const { payment, orders } = await this.getPaymentAndOrders({
+      orderId,
+      bulkOrderId,
     });
 
     if (!payment) {
       throw new NotFoundException('Payment not found');
     }
 
-    // Verify buyer owns this order
-    if (payment.order.buyer.id !== buyer.id) {
+    // Verify buyer owns all orders
+    const invalidOrder = orders.find((o) => o.buyer.id !== buyer.id);
+    if (invalidOrder) {
       throw new BadRequestException('You can only confirm your own orders');
     }
 
@@ -237,8 +319,15 @@ export class PaymentsService {
       throw new BadRequestException('Payment is not in escrow');
     }
 
-    // Check if order is delivered
-    if (payment.order.orderStatus !== OrderStatus.DELIVERED) {
+    //  if (payment.escrowStatus === 'RELEASED') {
+    //   throw new BadRequestException('Payment has already been released to seller');
+    // }
+
+    // Check if all orders are delivered
+    const notDelivered = orders.find(
+      (o) => o.orderStatus !== OrderStatus.DELIVERED,
+    );
+    if (notDelivered) {
       throw new BadRequestException(
         'Order must be delivered before releasing payment',
       );
@@ -247,10 +336,12 @@ export class PaymentsService {
     // Release escrow
     payment.escrowStatus = EscrowStatus.RELEASED;
     payment.escrowReleasedAt = new Date();
-    payment.order.orderStatus = OrderStatus.COMPLETED;
+    orders.forEach((o) => {
+      o.orderStatus = OrderStatus.COMPLETED;
+    });
 
     await this.paymentRepo.save(payment);
-    await this.orderRepo.save(payment.order);
+    await this.orderRepo.save(orders);
 
     // Here you would typically transfer funds to seller's account
     // This could be done via Paystack Transfer API or your own logic
@@ -272,32 +363,49 @@ export class PaymentsService {
       .leftJoinAndSelect('order.product', 'product')
       .leftJoinAndSelect('product.seller', 'seller')
       .where('payment.escrowStatus = :status', { status: 'HELD' })
-      .andWhere('order.orderStatus = :orderStatus', {
-        orderStatus: OrderStatus.DELIVERED,
-      })
       .andWhere('payment.escrowHeldAt <= :cutoffDate', { cutoffDate })
       .getMany();
 
+    let releasedCount = 0;
+
     for (const payment of paymentsToRelease) {
+      const bulkOrderId = payment.paystackResponse?.metadata?.bulkOrderId;
+      let orders: Order[] = [payment.order];
+
+      if (bulkOrderId) {
+        orders = await this.orderRepo.find({ where: { bulkOrderId } });
+      }
+
+      const allDelivered = orders.every(
+        (o) => o.orderStatus === OrderStatus.DELIVERED,
+      );
+      if (!allDelivered) {
+        continue;
+      }
+
       payment.escrowStatus = EscrowStatus.RELEASED;
       payment.escrowReleasedAt = new Date();
-      payment.order.orderStatus = OrderStatus.COMPLETED;
+
+      orders.forEach((o) => {
+        o.orderStatus = OrderStatus.COMPLETED;
+      });
 
       await this.paymentRepo.save(payment);
-      await this.orderRepo.save(payment.order);
+      await this.orderRepo.save(orders);
       await this.transferToSeller(payment);
+      releasedCount += 1;
     }
 
-    return paymentsToRelease.length;
+    return releasedCount;
   }
 
   /**
    * Handle refund (if order is cancelled before delivery)
    */
-  async refundPayment(orderId: string) {
-    const payment = await this.paymentRepo.findOne({
-      where: { order: { id: orderId } },
-      relations: ['order', 'buyer'],
+  async refundPayment(orderId?: string, bulkOrderId?: string) {
+    const { payment, orders } = await this.getPaymentAndOrders({
+      orderId,
+      bulkOrderId,
     });
 
     if (!payment) {
@@ -334,10 +442,12 @@ export class PaymentsService {
       payment.status = PaymentStatus.REFUNDED;
       payment.escrowStatus = EscrowStatus.REFUNDED;
       payment.refundedAt = new Date();
-      payment.order.paymentStatus = PaymentStatus.REFUNDED;
+      orders.forEach((o) => {
+        o.paymentStatus = PaymentStatus.REFUNDED;
+      });
 
       await this.paymentRepo.save(payment);
-      await this.orderRepo.save(payment.order);
+      await this.orderRepo.save(orders);
 
       return payment;
     } catch (error) {
@@ -388,11 +498,13 @@ export class PaymentsService {
   /**
    * Get payment by order ID
    */
-  async getPaymentByOrder(orderId: string) {
-    return this.paymentRepo.findOne({
-      where: { order: { id: orderId } },
-      relations: ['order', 'buyer'],
-    });
+  async getPaymentByOrder(orderId?: string, bulkOrderId?: string) {
+    const payment = await this.getPaymentByOrderOrBulk(orderId, bulkOrderId);
+    if (!payment) {
+      throw new NotFoundException('Payment not found');
+    }
+
+    return payment;
   }
 
   /**
@@ -402,5 +514,67 @@ export class PaymentsService {
     const timestamp = Date.now();
     const random = Math.floor(Math.random() * 1000000);
     return `MED-${timestamp}-${random}`;
+  }
+
+  private async getPaymentByOrderOrBulk(
+    orderId?: string,
+    bulkOrderId?: string,
+  ) {
+    if (bulkOrderId) {
+      return this.paymentRepo
+        .createQueryBuilder('payment')
+        .leftJoinAndSelect('payment.order', 'order')
+        .leftJoinAndSelect('payment.buyer', 'buyer')
+        .where('order.bulkOrderId = :bulkOrderId', { bulkOrderId })
+        .getOne();
+    }
+
+    if (orderId) {
+      return this.paymentRepo.findOne({
+        where: { order: { id: orderId } },
+        relations: ['order', 'buyer'],
+      });
+    }
+
+    return null;
+  }
+
+  private async getPaymentAndOrders({
+    orderId,
+    bulkOrderId,
+  }: {
+    orderId?: string;
+    bulkOrderId?: string;
+  }) {
+    if (!orderId && !bulkOrderId) {
+      throw new BadRequestException('orderId or bulkOrderId is required');
+    }
+
+    if (bulkOrderId) {
+      const orders = await this.orderRepo.find({
+        where: { bulkOrderId },
+        relations: ['buyer', 'product', 'product.seller'],
+        order: { createdAt: 'DESC' },
+      });
+
+      if (orders.length === 0) {
+        throw new NotFoundException('Bulk order not found');
+      }
+
+      const payment = await this.getPaymentByOrderOrBulk(undefined, bulkOrderId);
+      return { payment, orders };
+    }
+
+    const orders = await this.orderRepo.find({
+      where: { id: orderId },
+      relations: ['buyer', 'product', 'product.seller'],
+    });
+
+    if (orders.length === 0) {
+      throw new NotFoundException('Order not found');
+    }
+
+    const payment = await this.getPaymentByOrderOrBulk(orderId);
+    return { payment, orders };
   }
 }

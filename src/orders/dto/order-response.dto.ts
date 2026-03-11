@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { OrderStatus, PaymentStatus } from '../enums/order.enum';
 
 export class OrderResponseDto {
@@ -55,6 +55,12 @@ export class OrderResponseDto {
     description: 'Total price (unitPrice × quantity)',
   })
   totalPrice: number;
+
+  @ApiPropertyOptional({
+    example: 'bulk-123e4567-e89b-12d3-a456-426614174000',
+    description: 'Shared order identifier for bulk purchases',
+  })
+  bulkOrderId?: string;
 
   @ApiProperty({
     example: 'pending',

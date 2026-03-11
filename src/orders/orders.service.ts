@@ -12,6 +12,7 @@ import { User } from 'src/users/entities/user.entity';
 import { CreateOrderDto, CreateBulkOrdersDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { OrderStatus, PaymentStatus } from './enums/order.enum';
+import { randomUUID } from 'crypto';
 
 @Injectable()
 export class OrdersService {
@@ -67,7 +68,10 @@ export class OrdersService {
     return savedOrder;
   }
 
-  async createBulk(dto: CreateBulkOrdersDto, buyer: User): Promise<Order[]> {
+  async createBulk(
+    dto: CreateBulkOrdersDto,
+    buyer: User,
+  ): Promise<{ orderId: string; totalPrice: number; orders: Order[] }> {
     if (dto.productIds.length !== dto.quantities.length) {
       throw new BadRequestException(
         'productIds and quantities must have the same length',
@@ -80,6 +84,8 @@ export class OrdersService {
 
     return this.orderRepo.manager.transaction(async (manager) => {
       const createdOrders: Order[] = [];
+      const orderId = `bulk-${randomUUID()}`;
+      let totalPrice = 0;
 
       for (let i = 0; i < dto.productIds.length; i++) {
         const productId = dto.productIds[i];
@@ -102,14 +108,16 @@ export class OrdersService {
           );
         }
 
-        const totalPrice = Number(product.price) * quantity;
+        const lineTotal = Number(product.price) * quantity;
+        totalPrice += lineTotal;
 
         const order = manager.create(Order, {
           buyer,
           product,
           quantity,
           unitPrice: product.price,
-          totalPrice,
+          totalPrice: lineTotal,
+          bulkOrderId: orderId,
           deliveryAddress: dto.deliveryAddress,
           notes: dto.notes,
           orderStatus: OrderStatus.PENDING,
@@ -120,11 +128,22 @@ export class OrdersService {
         createdOrders.push(savedOrder);
       }
 
-      return createdOrders;
+      return { orderId, totalPrice, orders: createdOrders };
     });
   }
 
-  async findAll(buyerId?: string): Promise<Order[]> {
+  async findAll({
+    buyerId,
+    page = 1,
+    limit = 10,
+  }: {
+    buyerId?: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const safePage = Math.max(page, 1);
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+
     const query = this.orderRepo.createQueryBuilder('order')
       .leftJoinAndSelect('order.buyer', 'buyer')
       .leftJoinAndSelect('order.product', 'product')
@@ -134,23 +153,88 @@ export class OrdersService {
       query.where('order.buyerId = :buyerId', { buyerId });
     }
 
-    return query.orderBy('order.createdAt', 'DESC').getMany();
+    const [data, total] = await query
+      .orderBy('order.createdAt', 'DESC')
+      .skip((safePage - 1) * safeLimit)
+      .take(safeLimit)
+      .getManyAndCount();
+
+    return {
+      data,
+      meta: {
+        total,
+        page: safePage,
+        limit: safeLimit,
+        totalPages: Math.ceil(total / safeLimit),
+      },
+    };
   }
 
-  async findByBuyer(buyerId: string): Promise<Order[]> {
-    return this.orderRepo.find({
-      where: { buyer: { id: buyerId } },
-      relations: ['product', 'product.seller'],
-      order: { createdAt: 'DESC' },
-    });
+  async findByBuyer({
+    buyerId,
+    page = 1,
+    limit = 10,
+  }: {
+    buyerId: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const safePage = Math.max(page, 1);
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+
+    const [data, total] = await this.orderRepo
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.product', 'product')
+      .leftJoinAndSelect('product.seller', 'seller')
+      .where('order.buyerId = :buyerId', { buyerId })
+      .orderBy('order.createdAt', 'DESC')
+      .skip((safePage - 1) * safeLimit)
+      .take(safeLimit)
+      .getManyAndCount();
+
+    return {
+      data,
+      meta: {
+        total,
+        page: safePage,
+        limit: safeLimit,
+        totalPages: Math.ceil(total / safeLimit),
+      },
+    };
   }
 
-  async findBySeller(sellerId: string): Promise<Order[]> {
-    return this.orderRepo.find({
-      where: { product: { seller: { id: sellerId } } },
-      relations: ['buyer', 'product', 'product.seller'],
-      order: { createdAt: 'DESC' },
-    });
+  async findBySeller({
+    sellerId,
+    page = 1,
+    limit = 10,
+  }: {
+    sellerId: string;
+    page?: number;
+    limit?: number;
+  }) {
+    const safePage = Math.max(page, 1);
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+
+    const [data, total] = await this.orderRepo
+      .createQueryBuilder('order')
+      .leftJoinAndSelect('order.buyer', 'buyer')
+      .leftJoinAndSelect('order.product', 'product')
+      .leftJoinAndSelect('product.seller', 'seller')
+      .where('product.sellerId = :sellerId', { sellerId })
+      .orderBy('order.createdAt', 'DESC')
+      .skip((safePage - 1) * safeLimit)
+      .take(safeLimit)
+      .getManyAndCount();
+
+    return {
+      data,
+      meta: {
+        total,
+        page: safePage,
+        limit: safeLimit,
+        totalPages: Math.ceil(total / safeLimit),
+      },
+    };
   }
 
   async findOne(id: string): Promise<Order> {
@@ -166,126 +250,186 @@ export class OrdersService {
     return order;
   }
 
-  async update(id: string, dto: UpdateOrderDto, user: User): Promise<Order> {
-    const order = await this.findOne(id);
+  async findByBulkOrderId(bulkOrderId: string): Promise<{
+    orderId: string;
+    totalPrice: number;
+    orders: Order[];
+  }> {
+    const orders = await this.orderRepo.find({
+      where: { bulkOrderId },
+      relations: ['buyer', 'product', 'product.seller'],
+      order: { createdAt: 'DESC' },
+    });
 
-    // Only buyer can update their own order or admin/seller can update
-    if (order.buyer.id !== user.id && order.product.seller.id !== user.id) {
-      throw new ForbiddenException('You can only update your own orders');
+    if (orders.length === 0) {
+      throw new NotFoundException('Bulk order not found');
     }
 
-    Object.assign(order, dto);
-    return this.orderRepo.save(order);
+    const totalPrice = orders.reduce(
+      (sum, order) => sum + Number(order.totalPrice),
+      0,
+    );
+
+    return { orderId: bulkOrderId, totalPrice, orders };
   }
+
+  // async update(id: string, dto: UpdateOrderDto, user: User): Promise<Order> {
+  //   const order = await this.findOne(id);
+
+  //   // Only buyer can update their own order or admin/seller can update
+  //   if (order.buyer.id !== user.id && order.product.seller.id !== user.id) {
+  //     throw new ForbiddenException('You can only update your own orders');
+  //   }
+
+  //   Object.assign(order, dto);
+  //   return this.orderRepo.save(order);
+  // }
 
   /**
    * Mark order as shipped (seller action)
    */
-  async markAsShipped(id: string, seller: User, trackingNumber?: string): Promise<Order> {
-    const order = await this.findOne(id);
+  async markAsShipped(
+    id: string,
+    seller: User,
+    trackingNumber?: string,
+  ): Promise<Order | Order[]> {
+    const { orders, isBulk } = await this.getOrdersByIdOrBulk(id);
 
-    // Only seller can mark as shipped
-    if (order.product.seller.id !== seller.id) {
-      throw new ForbiddenException('Only the seller can mark order as shipped');
+    for (const order of orders) {
+      // Only seller can mark as shipped
+      if (order.product.seller.id !== seller.id) {
+        throw new ForbiddenException('Only the seller can mark order as shipped');
+      }
+
+      // Order must be confirmed and paid
+      if (order.orderStatus !== OrderStatus.CONFIRMED) {
+        throw new BadRequestException('Order must be confirmed before shipping');
+      }
+
+      if (order.paymentStatus !== PaymentStatus.PAID) {
+        throw new BadRequestException('Order must be paid before shipping');
+      }
+
+      order.orderStatus = OrderStatus.SHIPPED;
+      if (trackingNumber) {
+        order.trackingNumber = trackingNumber;
+      }
+      order.shippedAt = new Date();
     }
 
-    // Order must be confirmed and paid
-    if (order.orderStatus !== OrderStatus.CONFIRMED) {
-      throw new BadRequestException('Order must be confirmed before shipping');
-    }
-
-    if (order.paymentStatus !== PaymentStatus.PAID) {
-      throw new BadRequestException('Order must be paid before shipping');
-    }
-
-    order.orderStatus = OrderStatus.SHIPPED;
-    if (trackingNumber) {
-      order.trackingNumber = trackingNumber;
-    }
-    order.shippedAt = new Date();
-
-    return this.orderRepo.save(order);
+    await this.orderRepo.save(orders);
+    return isBulk ? orders : orders[0];
   }
 
   /**
    * Mark order as delivered (can be automatic via tracking or manual)
    */
-  async markAsDelivered(id: string): Promise<Order> {
-    const order = await this.findOne(id);
+  async markAsDelivered(id: string): Promise<Order | Order[]> {
+    const { orders, isBulk } = await this.getOrdersByIdOrBulk(id);
 
-    if (order.orderStatus !== OrderStatus.SHIPPED) {
-      throw new BadRequestException('Order must be shipped before marking as delivered');
+    for (const order of orders) {
+      if (order.orderStatus !== OrderStatus.SHIPPED) {
+        throw new BadRequestException('Order must be shipped before marking as delivered');
+      }
+
+      order.orderStatus = OrderStatus.DELIVERED;
+      order.deliveredAt = new Date();
     }
 
-    order.orderStatus = OrderStatus.DELIVERED;
-    order.deliveredAt = new Date();
-
-    return this.orderRepo.save(order);
+    await this.orderRepo.save(orders);
+    return isBulk ? orders : orders[0];
   }
 
   /**
    * Complete order (buyer confirms receipt and quality)
    */
-  async completeOrder(id: string, buyer: User): Promise<Order> {
-    const order = await this.findOne(id);
+  async completeOrder(id: string, buyer: User): Promise<Order | Order[]> {
+    const { orders, isBulk } = await this.getOrdersByIdOrBulk(id);
 
-    // Only buyer can complete their order
-    if (order.buyer.id !== buyer.id) {
-      throw new ForbiddenException('Only the buyer can complete the order');
+    for (const order of orders) {
+      // Only buyer can complete their order
+      if (order.buyer.id !== buyer.id) {
+        throw new ForbiddenException('Only the buyer can complete the order');
+      }
+
+      if (order.orderStatus !== OrderStatus.DELIVERED) {
+        throw new BadRequestException('Order must be delivered before completion');
+      }
+
+      order.orderStatus = OrderStatus.COMPLETED;
+      order.completedAt = new Date();
     }
 
-    if (order.orderStatus !== OrderStatus.DELIVERED) {
-      throw new BadRequestException('Order must be delivered before completion');
-    }
-
-    order.orderStatus = OrderStatus.COMPLETED;
-    order.completedAt = new Date();
-
-    return this.orderRepo.save(order);
+    await this.orderRepo.save(orders);
+    return isBulk ? orders : orders[0];
   }
 
-  async cancel(id: string, user: User): Promise<Order> {
+  async cancel(id: string, user: User): Promise<Order | Order[]> {
+    const { orders, isBulk } = await this.getOrdersByIdOrBulk(id);
+
+    for (const order of orders) {
+      // Buyer can cancel their own order, seller can cancel if not paid
+      const isBuyer = order.buyer.id === user.id;
+      const isSeller = order.product.seller.id === user.id;
+
+      if (!isBuyer && !isSeller) {
+        throw new ForbiddenException('You do not have permission to cancel this order');
+      }
+
+      // Can only cancel pending or confirmed orders
+      if (
+        order.orderStatus !== OrderStatus.PENDING &&
+        order.orderStatus !== OrderStatus.CONFIRMED
+      ) {
+        throw new BadRequestException(
+          `Cannot cancel order with status: ${order.orderStatus}`,
+        );
+      }
+
+      // If payment is already in escrow, refund will be handled by payment service
+      if (order.paymentStatus === PaymentStatus.PAID) {
+        // Payment service will handle the refund
+        order.paymentStatus = PaymentStatus.PENDING_REFUND;
+      }
+
+      // Restore product stock
+      const product = await this.productRepo.findOne({
+        where: { id: order.product.id },
+      });
+
+      if (product) {
+        product.stock += order.quantity;
+        await this.productRepo.save(product);
+      }
+
+      // Update order status
+      order.orderStatus = OrderStatus.CANCELLED;
+      order.cancelledAt = new Date();
+    }
+
+    await this.orderRepo.save(orders);
+    return isBulk ? orders : orders[0];
+  }
+
+  private async getOrdersByIdOrBulk(id: string) {
+    const isBulk = id.startsWith('bulk-');
+
+    if (isBulk) {
+      const orders = await this.orderRepo.find({
+        where: { bulkOrderId: id },
+        relations: ['buyer', 'product', 'product.seller'],
+        order: { createdAt: 'DESC' },
+      });
+
+      if (orders.length === 0) {
+        throw new NotFoundException('Bulk order not found');
+      }
+
+      return { orders, isBulk };
+    }
+
     const order = await this.findOne(id);
-
-    // Buyer can cancel their own order, seller can cancel if not paid
-    const isBuyer = order.buyer.id === user.id;
-    const isSeller = order.product.seller.id === user.id;
-
-    if (!isBuyer && !isSeller) {
-      throw new ForbiddenException('You do not have permission to cancel this order');
-    }
-
-    // Can only cancel pending or confirmed orders
-    if (
-      order.orderStatus !== OrderStatus.PENDING &&
-      order.orderStatus !== OrderStatus.CONFIRMED
-    ) {
-      throw new BadRequestException(
-        `Cannot cancel order with status: ${order.orderStatus}`,
-      );
-    }
-
-    // If payment is already in escrow, refund will be handled by payment service
-    if (order.paymentStatus === PaymentStatus.PAID) {
-      // Payment service will handle the refund
-      order.paymentStatus = PaymentStatus.PENDING_REFUND;
-    }
-
-    // Restore product stock
-    const product = await this.productRepo.findOne({
-      where: { id: order.product.id },
-    });
-
-    if (product) {
-      product.stock += order.quantity;
-      await this.productRepo.save(product);
-    }
-
-    // Update order status
-    order.orderStatus = OrderStatus.CANCELLED;
-    order.cancelledAt = new Date();
-
-    return this.orderRepo.save(order);
+    return { orders: [order], isBulk };
   }
 
   async updatePaymentStatus(

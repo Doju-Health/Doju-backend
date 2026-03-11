@@ -60,6 +60,9 @@ export class User {
   address?: string;
 
   @Column({ nullable: true })
+  profileImageUrl?: string;
+
+  @Column({ nullable: true })
   licenseNumber?: string;
 
   @Column({ nullable: true })

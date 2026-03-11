@@ -4,6 +4,7 @@ import {
   Get,
   Body,
   Param,
+  Query,
   UseGuards,
   Request,
   Headers,
@@ -18,6 +19,7 @@ import {
   ApiParam,
   ApiBody,
   ApiHeader,
+  ApiQuery,
 } from '@nestjs/swagger';
 import { PaymentsService } from './payment.service';
 import {
@@ -46,7 +48,7 @@ export class PaymentsController {
   @ApiBearerAuth()
   @ApiBody({
     type: InitiatePaymentDto,
-    description: 'Order ID and optional callback URL',
+    description: 'Order ID or bulkOrderId, plus optional callback URL',
   })
   @ApiResponse({
     status: 201,
@@ -154,7 +156,7 @@ export class PaymentsController {
   @ApiBearerAuth()
   @ApiBody({
     type: ConfirmDeliveryDto,
-    description: 'Order ID with optional feedback and rating',
+    description: 'Order ID or bulkOrderId with optional feedback and rating',
   })
   @ApiResponse({
     status: 201,
@@ -178,7 +180,11 @@ export class PaymentsController {
   @ApiResponse({ status: 404, description: 'Payment not found' })
   @ApiResponse({ status: 500, description: 'Failed to release escrow' })
   async confirmDelivery(@Body() dto: ConfirmDeliveryDto, @Request() req) {
-    return this.paymentService.confirmDeliveryAndRelease(dto.orderId, req.user);
+    return this.paymentService.confirmDeliveryAndRelease(
+      dto.orderId,
+      req.user,
+      dto.bulkOrderId,
+    );
   }
 
   /**
@@ -194,8 +200,13 @@ export class PaymentsController {
   @ApiBearerAuth()
   @ApiParam({
     name: 'orderId',
-    description: 'Order UUID',
+    description: 'Order UUID or bulk order identifier (bulk-<uuid>)',
     example: '550e8400-e29b-41d4-a716-446655440000',
+  })
+  @ApiQuery({
+    name: 'bulkOrderId',
+    required: false,
+    description: 'Bulk order identifier (bulk-<uuid>)',
   })
   @ApiResponse({
     status: 200,
@@ -213,8 +224,17 @@ export class PaymentsController {
     },
   })
   @ApiResponse({ status: 404, description: 'Payment not found for this order' })
-  async getPaymentByOrder(@Param('orderId') orderId: string) {
-    return this.paymentService.getPaymentByOrder(orderId);
+  async getPaymentByOrder(
+    @Param('orderId') orderId: string,
+    @Query('bulkOrderId') bulkOrderId?: string,
+  ) {
+    const resolvedBulkOrderId =
+      bulkOrderId ?? (orderId.startsWith('bulk-') ? orderId : undefined);
+    const resolvedOrderId = resolvedBulkOrderId ? undefined : orderId;
+    return this.paymentService.getPaymentByOrder(
+      resolvedOrderId,
+      resolvedBulkOrderId,
+    );
   }
 
   /**
@@ -231,7 +251,7 @@ export class PaymentsController {
   @ApiBearerAuth()
   @ApiParam({
     name: 'orderId',
-    description: 'Order UUID',
+    description: 'Order UUID or bulk order identifier (bulk-<uuid>)',
     example: '550e8400-e29b-41d4-a716-446655440000',
   })
   @ApiResponse({
@@ -258,7 +278,13 @@ export class PaymentsController {
   @ApiResponse({ status: 404, description: 'Payment not found' })
   async releaseEscrow(@Param('orderId') orderId: string, @Request() req) {
     // You should add admin role check here
-    return this.paymentService.confirmDeliveryAndRelease(orderId, req.user);
+    const bulkOrderId = orderId.startsWith('bulk-') ? orderId : undefined;
+    const resolvedOrderId = bulkOrderId ? undefined : orderId;
+    return this.paymentService.confirmDeliveryAndRelease(
+      resolvedOrderId,
+      req.user,
+      bulkOrderId,
+    );
   }
 
   /**
@@ -275,7 +301,7 @@ export class PaymentsController {
   @ApiBearerAuth()
   @ApiParam({
     name: 'orderId',
-    description: 'Order UUID',
+    description: 'Order UUID or bulk order identifier (bulk-<uuid>)',
     example: '550e8400-e29b-41d4-a716-446655440000',
   })
   @ApiResponse({
@@ -303,6 +329,8 @@ export class PaymentsController {
   @ApiResponse({ status: 404, description: 'Payment not found' })
   @ApiResponse({ status: 500, description: 'Refund processing failed' })
   async refundPayment(@Param('orderId') orderId: string) {
-    return this.paymentService.refundPayment(orderId);
+    const bulkOrderId = orderId.startsWith('bulk-') ? orderId : undefined;
+    const resolvedOrderId = bulkOrderId ? undefined : orderId;
+    return this.paymentService.refundPayment(resolvedOrderId, bulkOrderId);
   }
 }

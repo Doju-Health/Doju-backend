@@ -31,6 +31,9 @@ export class Order {
   @Column('decimal', { precision: 10, scale: 2 })
   totalPrice: number;
 
+  @Column({ nullable: true })
+  bulkOrderId?: string;
+
   @Column({
     type: 'enum',
     enum: OrderStatus,

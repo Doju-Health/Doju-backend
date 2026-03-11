@@ -8,13 +8,21 @@ import {
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class InitiatePaymentDto {
-  @ApiProperty({
+  @ApiPropertyOptional({
     description: 'UUID of the order to be paid',
     example: '550e8400-e29b-41d4-a716-446655440000',
   })
-  @IsNotEmpty()
+  @IsOptional()
   @IsUUID()
-  orderId: string;
+  orderId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Bulk order identifier (bulk-<uuid>)',
+    example: 'bulk-123e4567-e89b-12d3-a456-426614174000',
+  })
+  @IsOptional()
+  @IsString()
+  bulkOrderId?: string;
 
   @ApiPropertyOptional({
     description: 'Callback URL to redirect user after payment completion',
@@ -40,9 +48,17 @@ export class ConfirmDeliveryDto {
     description: 'UUID of the order that was delivered',
     example: '550e8400-e29b-41d4-a716-446655440000',
   })
-  @IsNotEmpty()
+  @IsOptional()
   @IsUUID()
-  orderId: string;
+  orderId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Bulk order identifier (bulk-<uuid>)',
+    example: 'bulk-123e4567-e89b-12d3-a456-426614174000',
+  })
+  @IsOptional()
+  @IsString()
+  bulkOrderId?: string;
 
   @ApiPropertyOptional({
     description: 'Buyer feedback about the product',
