@@ -39,6 +39,9 @@ export class Product {
   @Column({ default: true })
   isActive: boolean;
 
+  @Column({ default: false })
+  isApproved: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 

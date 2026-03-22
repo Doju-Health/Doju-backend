@@ -29,6 +29,10 @@ export class ProductsService {
     seller: User,
     files?: Express.Multer.File[],
   ) {
+    if (seller.isVerified === false) {
+      throw new ForbiddenException('Seller account is not verified');
+    }
+
     // Verify category exists
     const category = await this.categoryRepo.findOne({
       where: { id: dto.categoryId, isActive: true },

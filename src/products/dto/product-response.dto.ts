@@ -86,6 +86,12 @@ export class ProductResponseDto {
   isActive: boolean;
 
   @ApiProperty({
+    example: false,
+    description: 'Product approval status',
+  })
+  isApproved: boolean;
+
+  @ApiProperty({
     example: '2025-02-09T10:30:00Z',
     description: 'Product creation timestamp',
   })

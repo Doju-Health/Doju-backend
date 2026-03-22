@@ -68,6 +68,9 @@ export class User {
   @Column({ nullable: true })
   paystackRecipientCode?: string;
 
+  @Column({ default: false })
+  isVerified: boolean;
+
   @Column({ default: true })
   isActive: boolean;
 

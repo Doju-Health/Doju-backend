@@ -34,6 +34,10 @@ export class OrdersService {
       throw new NotFoundException('Product not found or is inactive');
     }
 
+    if (product.isApproved === false) {
+      throw new BadRequestException('Product is not approved for ordering');
+    }
+
     // Check stock availability
     if (product.stock < dto.quantity) {
       throw new BadRequestException(
@@ -99,6 +103,12 @@ export class OrdersService {
         if (!product) {
           throw new NotFoundException(
             `Product not found or is inactive: ${productId}`,
+          );
+        }
+
+        if (!product.isApproved) {
+          throw new BadRequestException(
+            `Product is not approved for ordering: ${productId}`,
           );
         }
 
