@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Controller,
   Post,
   Get,
@@ -10,6 +11,8 @@ import {
   Headers,
   HttpCode,
   HttpStatus,
+  DefaultValuePipe,
+  ParseIntPipe,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -28,6 +31,11 @@ import {
   VerifyPaymentDto,
 } from './dto/payment.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth-guard';
+import { RolesGuard } from 'src/common/guards/role.guards';
+import { Roles } from 'src/common/decorators/roles.decorator';
+import { UserRole } from 'src/users/enums/user.enum';
+import { PaymentStatus } from 'src/orders/enums/order.enum';
+import { EscrowStatus } from './entities/payment.entity';
 
 @ApiTags('Payments')
 @Controller('payments')
@@ -71,6 +79,146 @@ export class PaymentsController {
   @ApiResponse({ status: 500, description: 'Payment initialization failed' })
   async initiatePayment(@Body() dto: InitiatePaymentDto, @Request() req) {
     return this.paymentService.initiatePayment(dto, req.user);
+  }
+
+  /**
+   * Admin: Get all transactions with filters
+   * GET /payments/transactions
+   */
+  @Get('transactions')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get all transactions (Admin)',
+    description:
+      'Retrieve all transactions with pagination and optional filters by role, userId, status, escrowStatus, and provider.',
+  })
+  @ApiQuery({ name: 'page', required: false, description: 'Page number (min 1)' })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Items per page (min 1, max 100)',
+  })
+  @ApiQuery({
+    name: 'role',
+    required: false,
+    enum: UserRole,
+    description: 'Filter by user role (buyer or seller)',
+  })
+  @ApiQuery({
+    name: 'userId',
+    required: false,
+    description: 'Filter by user ID (buyer or seller)',
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: PaymentStatus,
+    description: 'Filter by payment status',
+  })
+  @ApiQuery({
+    name: 'escrowStatus',
+    required: false,
+    enum: EscrowStatus,
+    description: 'Filter by escrow status',
+  })
+  @ApiQuery({
+    name: 'provider',
+    required: false,
+    description: 'Filter by provider (e.g., PAYSTACK)',
+  })
+  getTransactions(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+    @Query('role') role?: UserRole,
+    @Query('userId') userId?: string,
+    @Query('status') status?: PaymentStatus,
+    @Query('escrowStatus') escrowStatus?: EscrowStatus,
+    @Query('provider') provider?: string,
+  ) {
+    if (role && ![UserRole.BUYER, UserRole.SELLER, UserRole.ADMIN].includes(role)) {
+      throw new BadRequestException('Invalid role value');
+    }
+
+    if (status && !Object.values(PaymentStatus).includes(status)) {
+      throw new BadRequestException('Invalid status value');
+    }
+
+    if (escrowStatus && !Object.values(EscrowStatus).includes(escrowStatus)) {
+      throw new BadRequestException('Invalid escrowStatus value');
+    }
+
+    return this.paymentService.getTransactions({
+      page,
+      limit,
+      role,
+      userId,
+      status,
+      escrowStatus,
+      provider,
+    });
+  }
+
+  /**
+   * User: Get my transactions
+   * GET /payments/transactions/me
+   */
+  @Get('transactions/me')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get my transactions',
+    description:
+      'Retrieve the current user transactions with pagination and optional filters.',
+  })
+  @ApiQuery({ name: 'page', required: false, description: 'Page number (min 1)' })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    description: 'Items per page (min 1, max 100)',
+  })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: PaymentStatus,
+    description: 'Filter by payment status',
+  })
+  @ApiQuery({
+    name: 'escrowStatus',
+    required: false,
+    enum: EscrowStatus,
+    description: 'Filter by escrow status',
+  })
+  @ApiQuery({
+    name: 'provider',
+    required: false,
+    description: 'Filter by provider (e.g., PAYSTACK)',
+  })
+  getMyTransactions(
+    @Request() req,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+    @Query('status') status?: PaymentStatus,
+    @Query('escrowStatus') escrowStatus?: EscrowStatus,
+    @Query('provider') provider?: string,
+  ) {
+    if (status && !Object.values(PaymentStatus).includes(status)) {
+      throw new BadRequestException('Invalid status value');
+    }
+
+    if (escrowStatus && !Object.values(EscrowStatus).includes(escrowStatus)) {
+      throw new BadRequestException('Invalid escrowStatus value');
+    }
+
+    return this.paymentService.getMyTransactions({
+      user: req.user,
+      page,
+      limit,
+      status,
+      escrowStatus,
+      provider,
+    });
   }
 
   /**

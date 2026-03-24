@@ -9,6 +9,9 @@ import { User } from 'src/users/entities/user.entity';
 import { Product } from 'src/products/entities/product-entity';
 import { UserRole } from 'src/users/enums/user.enum';
 import { Order } from 'src/orders/entities/order.entity';
+import { ProductCategory } from 'src/products/entities/product-category.entity';
+import { Payment } from 'src/payment/entities/payment.entity';
+import { PaymentStatus } from 'src/orders/enums/order.enum';
 
 @Injectable()
 export class AdminService {
@@ -19,6 +22,10 @@ export class AdminService {
     private productRepo: Repository<Product>,
     @InjectRepository(Order)
     private orderRepo: Repository<Order>,
+    @InjectRepository(ProductCategory)
+    private categoryRepo: Repository<ProductCategory>,
+    @InjectRepository(Payment)
+    private paymentRepo: Repository<Payment>,
   ) {}
 
   async getUsers({
@@ -366,6 +373,47 @@ export class AdminService {
         page: safePage,
         limit: safeLimit,
         totalPages: Math.ceil(total / safeLimit),
+      },
+    };
+  }
+
+  async getDashboardStats() {
+    const [
+      totalUsers,
+      totalBuyers,
+      totalSellers,
+      totalProducts,
+      totalCategories,
+      totalTransactions,
+      successfulTransactions,
+      failedTransactions,
+    ] = await Promise.all([
+      this.userRepo.count(),
+      this.userRepo.count({ where: { role: UserRole.BUYER } }),
+      this.userRepo.count({ where: { role: UserRole.SELLER } }),
+      this.productRepo.count(),
+      this.categoryRepo.count(),
+      this.paymentRepo.count(),
+      this.paymentRepo.count({ where: { status: PaymentStatus.PAID } }),
+      this.paymentRepo.count({ where: { status: PaymentStatus.FAILED } }),
+    ]);
+
+    return {
+      users: {
+        total: totalUsers,
+        buyers: totalBuyers,
+        sellers: totalSellers,
+      },
+      products: {
+        total: totalProducts,
+      },
+      categories: {
+        total: totalCategories,
+      },
+      transactions: {
+        total: totalTransactions,
+        successful: successfulTransactions,
+        failed: failedTransactions,
       },
     };
   }

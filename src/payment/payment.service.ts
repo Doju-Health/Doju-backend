@@ -5,7 +5,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, Brackets } from 'typeorm';
 import { Payment } from './entities/payment.entity';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
@@ -14,6 +14,7 @@ import { User } from 'src/users/entities/user.entity';
 import { PaymentStatus, OrderStatus } from 'src/orders/enums/order.enum';
 import { InitiatePaymentDto } from './dto/payment.dto';
 import { EscrowStatus } from './entities/payment.entity';
+import { UserRole } from 'src/users/enums/user.enum';
 
 @Injectable()
 export class PaymentsService {
@@ -188,6 +189,136 @@ export class PaymentsService {
         'Failed to initialize payment. Please try again.',
       );
     }
+  }
+
+  async getTransactions({
+    page = 1,
+    limit = 10,
+    role,
+    userId,
+    status,
+    escrowStatus,
+    provider,
+  }: {
+    page?: number;
+    limit?: number;
+    role?: UserRole;
+    userId?: string;
+    status?: PaymentStatus;
+    escrowStatus?: EscrowStatus;
+    provider?: string;
+  }) {
+    const safePage = Math.max(page, 1);
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+
+    const qb = this.paymentRepo
+      .createQueryBuilder('payment')
+      .leftJoinAndSelect('payment.order', 'order')
+      .leftJoinAndSelect('payment.buyer', 'buyer')
+      .leftJoinAndSelect('order.product', 'product')
+      .leftJoinAndSelect('product.seller', 'seller');
+
+    if (status) {
+      qb.andWhere('payment.status = :status', { status });
+    }
+
+    if (escrowStatus) {
+      qb.andWhere('payment.escrowStatus = :escrowStatus', { escrowStatus });
+    }
+
+    if (provider) {
+      qb.andWhere('payment.provider = :provider', { provider });
+    }
+
+    if (role && userId) {
+      if (role === UserRole.BUYER) {
+        qb.andWhere('buyer.id = :userId', { userId });
+      } else if (role === UserRole.SELLER) {
+        qb.andWhere('seller.id = :userId', { userId });
+      }
+    } else if (userId) {
+      qb.andWhere(
+        new Brackets((subQb) => {
+          subQb.where('buyer.id = :userId', { userId }).orWhere('seller.id = :userId', { userId });
+        }),
+      );
+    }
+
+    const [data, total] = await qb
+      .orderBy('payment.createdAt', 'DESC')
+      .skip((safePage - 1) * safeLimit)
+      .take(safeLimit)
+      .getManyAndCount();
+
+    return {
+      data,
+      meta: {
+        total,
+        page: safePage,
+        limit: safeLimit,
+        totalPages: Math.ceil(total / safeLimit),
+      },
+    };
+  }
+
+  async getMyTransactions({
+    user,
+    page = 1,
+    limit = 10,
+    status,
+    escrowStatus,
+    provider,
+  }: {
+    user: User;
+    page?: number;
+    limit?: number;
+    status?: PaymentStatus;
+    escrowStatus?: EscrowStatus;
+    provider?: string;
+  }) {
+    const safePage = Math.max(page, 1);
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+
+    const qb = this.paymentRepo
+      .createQueryBuilder('payment')
+      .leftJoinAndSelect('payment.order', 'order')
+      .leftJoinAndSelect('payment.buyer', 'buyer')
+      .leftJoinAndSelect('order.product', 'product')
+      .leftJoinAndSelect('product.seller', 'seller');
+
+    if (user.role === UserRole.SELLER) {
+      qb.where('seller.id = :userId', { userId: user.id });
+    } else if (user.role === UserRole.BUYER) {
+      qb.where('buyer.id = :userId', { userId: user.id });
+    }
+
+    if (status) {
+      qb.andWhere('payment.status = :status', { status });
+    }
+
+    if (escrowStatus) {
+      qb.andWhere('payment.escrowStatus = :escrowStatus', { escrowStatus });
+    }
+
+    if (provider) {
+      qb.andWhere('payment.provider = :provider', { provider });
+    }
+
+    const [data, total] = await qb
+      .orderBy('payment.createdAt', 'DESC')
+      .skip((safePage - 1) * safeLimit)
+      .take(safeLimit)
+      .getManyAndCount();
+
+    return {
+      data,
+      meta: {
+        total,
+        page: safePage,
+        limit: safeLimit,
+        totalPages: Math.ceil(total / safeLimit),
+      },
+    };
   }
 
   /**

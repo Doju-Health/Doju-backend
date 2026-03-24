@@ -337,4 +337,13 @@ export class AdminController {
       paymentStatus,
     });
   }
+
+  @Get('dashboard/stats')
+  @ApiOperation({ summary: 'Get admin dashboard statistics' })
+  @ApiOkResponse({ description: 'Dashboard statistics retrieved successfully' })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT token' })
+  @ApiForbiddenResponse({ description: 'User does not have admin role' })
+  getDashboardStats() {
+    return this.adminService.getDashboardStats();
+  }
 }
