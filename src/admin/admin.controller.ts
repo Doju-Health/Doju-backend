@@ -199,6 +199,22 @@ export class AdminController {
     return this.adminService.verifySeller(id);
   }
 
+  @Patch('sellers/:id/kyc-approve')
+  @ApiOperation({ summary: 'Approve seller KYC (admin only)' })
+  @ApiParam({
+    name: 'id',
+    description: 'Seller unique identifier (UUID)',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiOkResponse({ description: 'KYC approved successfully' })
+  @ApiNotFoundResponse({ description: 'User not found' })
+  @ApiBadRequestResponse({ description: 'User is not a seller' })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT token' })
+  @ApiForbiddenResponse({ description: 'User does not have admin role' })
+  approveSellerKyc(@Param('id') id: string) {
+    return this.adminService.approveSellerKyc(id);
+  }
+
   @Patch('products/:id/approve')
   @ApiOperation({ summary: 'Approve product (admin only)' })
   @ApiParam({
@@ -345,5 +361,31 @@ export class AdminController {
   @ApiForbiddenResponse({ description: 'User does not have admin role' })
   getDashboardStats() {
     return this.adminService.getDashboardStats();
+  }
+
+  @Get('revenue')
+  @ApiOperation({ summary: 'Get total revenue' })
+  @ApiQuery({
+    name: 'sellerId',
+    required: false,
+    description: 'Get revenue for a specific seller (UUID)',
+  })
+  @ApiOkResponse({
+    description: 'Revenue calculated successfully',
+    schema: {
+      example: {
+        total: 15499.95,
+        currency: 'USD',
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT token' })
+  @ApiForbiddenResponse({ description: 'User does not have admin role' })
+  async getRevenue(@Query('sellerId') sellerId?: string) {
+    const total = await this.adminService.getRevenue(sellerId);
+    return {
+      total,
+      currency: 'USD',
+    };
   }
 }

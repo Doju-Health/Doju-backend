@@ -57,6 +57,12 @@ export class User {
   companyName?: string;
 
   @Column({ nullable: true })
+  ninUrl?: string;
+
+  @Column({ nullable: true })
+  cacUrl?: string;
+
+  @Column({ nullable: true })
   address?: string;
 
   @Column({ nullable: true })
@@ -64,6 +70,9 @@ export class User {
 
   @Column({ nullable: true })
   licenseNumber?: string;
+
+  @Column({ default: false })
+  kycApproved?: boolean;
 
   @Column({ nullable: true })
   paystackRecipientCode?: string;

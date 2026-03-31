@@ -43,6 +43,22 @@ export class UpdateProfileDto {
   licenseNumber?: string;
 
   @ApiPropertyOptional({
+    example: 'https://example.com/nin.jpg',
+    description: 'NIN document URL (seller)',
+  })
+  @IsOptional()
+  @IsString()
+  ninUrl?: string;
+
+  @ApiPropertyOptional({
+    example: 'https://example.com/cac.jpg',
+    description: 'CAC document URL (seller)',
+  })
+  @IsOptional()
+  @IsString()
+  cacUrl?: string;
+
+  @ApiPropertyOptional({
     example: 'https://example.com/profile.jpg',
     description: 'Profile image URL (if not uploading a file)',
   })

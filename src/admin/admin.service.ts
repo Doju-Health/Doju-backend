@@ -11,7 +11,7 @@ import { UserRole } from 'src/users/enums/user.enum';
 import { Order } from 'src/orders/entities/order.entity';
 import { ProductCategory } from 'src/products/entities/product-category.entity';
 import { Payment } from 'src/payment/entities/payment.entity';
-import { PaymentStatus } from 'src/orders/enums/order.enum';
+import { OrderStatus, PaymentStatus } from 'src/orders/enums/order.enum';
 
 @Injectable()
 export class AdminService {
@@ -239,6 +239,27 @@ export class AdminService {
     return { message: 'Seller verified successfully' };
   }
 
+  async approveSellerKyc(id: string) {
+    const user = await this.userRepo.findOne({ where: { id } });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (user.role !== UserRole.SELLER) {
+      throw new BadRequestException('User is not a seller');
+    }
+
+    if (user.kycApproved) {
+      return { message: 'KYC already approved' };
+    }
+
+    user.kycApproved = true;
+    await this.userRepo.save(user);
+
+    return { message: 'KYC approved successfully' };
+  }
+
   async approveProduct(id: string) {
     const product = await this.productRepo.findOne({ where: { id } });
 
@@ -416,5 +437,26 @@ export class AdminService {
         failed: failedTransactions,
       },
     };
+  }
+
+  async getRevenue(sellerId?: string): Promise<number> {
+    let query = this.orderRepo
+      .createQueryBuilder('order')
+      .where('order.paymentStatus = :paymentStatus', {
+        paymentStatus: PaymentStatus.PAID,
+      })
+      .andWhere('order.orderStatus = :orderStatus', {
+        orderStatus: OrderStatus.COMPLETED,
+      })
+      .select('SUM(order.totalPrice)', 'total');
+
+    if (sellerId) {
+      query = query
+        .leftJoin('order.product', 'product')
+        .andWhere('product.sellerId = :sellerId', { sellerId });
+    }
+
+    const result = await query.getRawOne();
+    return parseFloat(result?.total || 0);
   }
 }

@@ -47,6 +47,8 @@ export class UsersController {
         licenseNumber: { type: 'string' },
         profileImageUrl: { type: 'string' },
         profileImage: { type: 'string', format: 'binary' },
+        cacUrl: { type: 'string' },
+        ninUrl: { type: 'string' },
       },
     },
   })
