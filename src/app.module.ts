@@ -33,7 +33,7 @@ import { AdminModule } from './admin/admin.module';
           type: 'postgres',
           url: configService.get<string>('DATABASE_URL'),
           autoLoadEntities: true,
-          synchronize: true,
+          synchronize: false,
           ssl: isProduction ? { rejectUnauthorized: false } : false,
         };
       },

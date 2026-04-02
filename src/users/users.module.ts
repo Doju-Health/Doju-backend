@@ -4,9 +4,10 @@ import { UsersService } from './users.service';
 import { UsersController } from './users.controller';
 import { User } from './entities/user.entity';
 import { CommonModule } from 'src/common/common.module';
+import { PaymentsModule } from 'src/payment/payment.module';
 
 @Module({
-  imports: [TypeOrmModule.forFeature([User]), CommonModule],
+  imports: [TypeOrmModule.forFeature([User]), CommonModule, PaymentsModule],
   controllers: [UsersController],
   providers: [UsersService],
 })

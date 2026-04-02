@@ -51,10 +51,10 @@ export class AdminUserResponseDto {
 
   @ApiProperty({
     example: 'RCP_123456789',
-    description: 'Paystack recipient code (seller only)',
+    description: 'Flutterwave recipient code (seller only)',
     nullable: true,
   })
-  paystackRecipientCode?: string;
+  flutterwaveRecipientCode?: string;
 
   @ApiProperty({ example: true, description: 'Email verification status' })
   emailVerified: boolean;

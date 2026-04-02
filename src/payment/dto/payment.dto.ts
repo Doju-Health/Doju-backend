@@ -35,7 +35,7 @@ export class InitiatePaymentDto {
 
 export class VerifyPaymentDto {
   @ApiProperty({
-    description: 'Paystack payment reference',
+    description: 'Flutterwave payment reference',
     example: 'ref_12345abcde',
   })
   @IsNotEmpty()
@@ -76,4 +76,22 @@ export class ConfirmDeliveryDto {
   })
   @IsOptional()
   rating?: number;
+}
+
+export class VerifyBankDetailsDto {
+  @ApiProperty({
+    description: 'Bank account number',
+    example: '0123456789',
+  })
+  @IsNotEmpty()
+  @IsString()
+  accountNumber: string;
+
+  @ApiProperty({
+    description: 'Bank code (e.g., 044)',
+    example: '044',
+  })
+  @IsNotEmpty()
+  @IsString()
+  bankCode: string;
 }

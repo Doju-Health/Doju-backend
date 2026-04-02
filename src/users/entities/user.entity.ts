@@ -69,13 +69,22 @@ export class User {
   profileImageUrl?: string;
 
   @Column({ nullable: true })
+  bankCode?: string;
+
+  @Column({ nullable: true })
+  accountNumber?: string;
+
+  @Column({ nullable: true })
+  accountName?: string;
+
+  @Column({ nullable: true })
   licenseNumber?: string;
 
   @Column({ default: false })
   kycApproved?: boolean;
 
-  @Column({ nullable: true })
-  paystackRecipientCode?: string;
+  // @Column({ nullable: true })
+  // flutterwaveRecipientCode?: string;
 
   @Column({ default: false })
   isVerified: boolean;

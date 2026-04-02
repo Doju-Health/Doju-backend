@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { AddBankInfoDto } from './dto/add-bank-info.dto';
 import { CloudinaryService } from 'src/common/services/cloudinary.service';
 import type { Express } from 'express';
 
@@ -38,6 +39,20 @@ export class UsersService {
       ...dto,
       profileImageUrl,
     });
+
+    return this.userRepo.save(user);
+  }
+
+  async addBankInfo(userId: string, dto: AddBankInfoDto) {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    user.accountNumber = dto.accountNumber;
+    user.bankCode = dto.bankCode;
+    user.accountName = dto.accountName;
 
     return this.userRepo.save(user);
   }

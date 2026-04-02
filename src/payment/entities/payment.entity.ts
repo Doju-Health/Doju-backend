@@ -59,14 +59,14 @@ export class Payment {
   })
   escrowStatus: EscrowStatus;
 
-  @Column({ default: 'PAYSTACK' })
+  @Column({ default: 'FLUTTERWAVE' })
   provider: string;
 
   @Column({ nullable: true })
   channel: string; // card, bank, ussd, etc.
 
   @Column({ type: 'jsonb', nullable: true })
-  paystackResponse: any;
+  flutterwaveResponse: any;
 
   @Column({ type: 'timestamp', nullable: true })
   paidAt: Date;
@@ -80,11 +80,11 @@ export class Payment {
   @Column({ type: 'timestamp', nullable: true })
   refundedAt: Date;
 
-  @Column({ nullable: true })
-  transferReference: string; // Reference for payout to seller
+  @Column({ type: 'varchar', nullable: true })
+  transferReference: string | null; // Reference for payout to seller
 
   @Column({ type: 'timestamp', nullable: true })
-  transferredAt: Date;
+  transferredAt: Date | null;
 
   @CreateDateColumn()
   createdAt: Date;

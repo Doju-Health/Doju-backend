@@ -15,11 +15,13 @@ import { PaymentStatus, OrderStatus } from 'src/orders/enums/order.enum';
 import { InitiatePaymentDto } from './dto/payment.dto';
 import { EscrowStatus } from './entities/payment.entity';
 import { UserRole } from 'src/users/enums/user.enum';
+import * as crypto from 'crypto';
 
 @Injectable()
 export class PaymentsService {
-  private readonly paystackSecretKey: string;
-  private readonly paystackBaseUrl = 'https://api.paystack.co';
+  private readonly flwSecretKey: string;
+  private readonly flwWebhookHash: string;
+  private readonly flwBaseUrl = 'https://api.flutterwave.com/v3';
 
   constructor(
     @InjectRepository(Payment)
@@ -28,11 +30,12 @@ export class PaymentsService {
     private orderRepo: Repository<Order>,
     private configService: ConfigService,
   ) {
-    this.paystackSecretKey =
-      this.configService.get<string>('PAYSTACK_SECRET_KEY') ?? '';
+    this.flwSecretKey = this.configService.get<string>('FLW_SECRET_KEY') ?? '';
+    this.flwWebhookHash =
+      this.configService.get<string>('FLW_WEBHOOK_HASH') ?? '';
   }
 
-  // Initialize payment with Paystack
+  // Initialize payment with Flutterwave
 
   async initiatePayment(dto: InitiatePaymentDto, buyer: User) {
     if (!dto.orderId && !dto.bulkOrderId) {
@@ -62,20 +65,23 @@ export class PaymentsService {
       }
 
       // Check status for any order in the bulk group
-      const paidOrder = orders.find((o) => o.paymentStatus === PaymentStatus.PAID);
+      const paidOrder = orders.find(
+        (o) => o.paymentStatus === PaymentStatus.PAID,
+      );
       if (paidOrder) {
-        throw new BadRequestException('One or more orders have already been paid');
+        throw new BadRequestException(
+          'One or more orders have already been paid',
+        );
       }
 
-      const cancelledOrder = orders.find((o) => o.orderStatus === OrderStatus.CANCELLED);
+      const cancelledOrder = orders.find(
+        (o) => o.orderStatus === OrderStatus.CANCELLED,
+      );
       if (cancelledOrder) {
         throw new BadRequestException('Cannot pay for cancelled order');
       }
 
-      totalAmount = orders.reduce(
-        (sum, o) => sum + Number(o.totalPrice),
-        0,
-      );
+      totalAmount = orders.reduce((sum, o) => sum + Number(o.totalPrice), 0);
       bulkOrderId = dto.bulkOrderId;
       order = orders[0];
     } else if (dto.orderId) {
@@ -111,55 +117,46 @@ export class PaymentsService {
       throw new NotFoundException('Order not found');
     }
 
+    const reference = this.generateReference();
+
     try {
       const response = await axios.post<any>(
-        `${this.paystackBaseUrl}/transaction/initialize`,
+        `${this.flwBaseUrl}/payments`,
         {
-          email: buyer.email,
-          amount: Math.round(totalAmount * 100), // Paystack expects amount in kobo (smallest currency unit)
-          currency: 'NGN', // Change based on your currency
-          reference: this.generateReference(),
-          callback_url: dto.callbackUrl,
-          metadata: {
+          tx_ref: reference,
+          amount: totalAmount, // ✅ Flutterwave uses naira directly, no * 100
+          currency: 'NGN',
+          redirect_url: dto.callbackUrl,
+          customer: {
+            email: buyer.email,
+            name: `${buyer.fullName ?? ''}`.trim(),
+            phonenumber: buyer.phoneNumber ?? undefined,
+          },
+          meta: {
             orderId: order?.id,
             bulkOrderId,
             orderIds: orders.map((o) => o.id),
             buyerId: buyer.id,
             productId: order?.product?.id,
             sellerId: order?.product?.seller?.id,
-            custom_fields: [
-              {
-                display_name: 'Order ID',
-                variable_name: 'order_id',
-                value: order?.id ?? '',
-              },
-              ...(bulkOrderId
-                ? [
-                    {
-                      display_name: 'Bulk Order ID',
-                      variable_name: 'bulk_order_id',
-                      value: bulkOrderId,
-                    },
-                  ]
-                : []),
-              {
-                display_name: 'Product',
-                variable_name: 'product_name',
-                value: order?.product?.name ?? '',
-              },
-            ],
           },
-          channels: ['card', 'bank', 'ussd', 'mobile_money'], // Payment channels to enable
+          customizations: {
+            title: 'MedEquip Marketplace',
+            description: order?.product?.name
+              ? `Payment for ${order.product.name}`
+              : 'Medical Equipment Purchase',
+          },
+          payment_options: 'card,banktransfer,ussd,mobilemoney',
         },
         {
           headers: {
-            Authorization: `Bearer ${this.paystackSecretKey}`,
+            Authorization: `Bearer ${this.flwSecretKey}`,
             'Content-Type': 'application/json',
           },
         },
       );
 
-      const { authorization_url, access_code, reference } = response.data.data;
+      const { link } = response.data.data;
 
       // Create payment record in escrow status
       const payment = this.paymentRepo.create({
@@ -167,22 +164,20 @@ export class PaymentsService {
         buyer,
         amount: totalAmount,
         reference,
-        accessCode: access_code,
         status: PaymentStatus.PENDING,
-        escrowStatus: EscrowStatus.HELD, // Money will be held in escrow
-        provider: 'PAYSTACK',
+        escrowStatus: EscrowStatus.HELD,
+        provider: 'FLUTTERWAVE',
       });
 
       await this.paymentRepo.save(payment);
 
       return {
-        authorizationUrl: authorization_url,
-        accessCode: access_code,
+        authorizationUrl: link,
         reference,
       };
     } catch (error) {
       console.error(
-        'Paystack initialization error:',
+        'Flutterwave initialization error:',
         error.response?.data || error.message,
       );
       throw new InternalServerErrorException(
@@ -239,7 +234,9 @@ export class PaymentsService {
     } else if (userId) {
       qb.andWhere(
         new Brackets((subQb) => {
-          subQb.where('buyer.id = :userId', { userId }).orWhere('seller.id = :userId', { userId });
+          subQb
+            .where('buyer.id = :userId', { userId })
+            .orWhere('seller.id = :userId', { userId });
         }),
       );
     }
@@ -322,25 +319,28 @@ export class PaymentsService {
   }
 
   /**
-   * Verify Paystack payment and update escrow status
+   * Verify Flutterwave payment and update escrow status
    */
-  async verifyPayment(reference: string) {
+  async verifyPayment(transactionId: string) {
     try {
-      // Verify with Paystack
+      // Verify with Flutterwave
       const response = await axios.get(
-        `${this.paystackBaseUrl}/transaction/verify/${reference}`,
+        `${this.flwBaseUrl}/transactions/${transactionId}/verify`,
         {
           headers: {
-            Authorization: `Bearer ${this.paystackSecretKey}`,
+            Authorization: `Bearer ${this.flwSecretKey}`,
           },
         },
       );
 
-      const { status, amount, metadata, paid_at, channel } = response.data.data;
+      const { status, amount, meta, charged_amount, payment_type, created_at } =
+        response.data.data;
 
+      // tx_ref is your internal reference stored on the payment record
+      const tx_ref: string = response.data.data.tx_ref;
       // Find payment record
       const payment = await this.paymentRepo.findOne({
-        where: { reference },
+        where: { reference: tx_ref },
         relations: ['order', 'order.product', 'order.product.seller'],
       });
 
@@ -350,45 +350,42 @@ export class PaymentsService {
 
       // Update payment record
       payment.status =
-        status === 'success' ? PaymentStatus.PAID : PaymentStatus.FAILED;
-      if (paid_at) payment.paidAt = new Date(paid_at);
-      payment.channel = channel;
-      payment.paystackResponse = response.data.data;
+        status === 'successful' ? PaymentStatus.PAID : PaymentStatus.FAILED;
 
-      if (status === 'success') {
-        // Keep money in escrow until delivery is confirmed
+      if (created_at) payment.paidAt = new Date(created_at);
+      payment.channel = payment_type;
+      payment.flutterwaveResponse = response.data.data; // rename this field to `providerResponse` in entity ideally
+
+      if (status === 'successful') {
         payment.escrowStatus = EscrowStatus.HELD;
         payment.escrowHeldAt = new Date();
 
-        const bulkOrderId = metadata?.bulkOrderId;
+        const bulkOrderId = meta?.bulkOrderId;
+
         if (bulkOrderId) {
           const bulkOrders = await this.orderRepo.find({
             where: { bulkOrderId },
           });
-
-          if (bulkOrders.length === 0) {
+          if (bulkOrders.length === 0)
             throw new NotFoundException('Bulk order not found');
-          }
 
           for (const order of bulkOrders) {
             order.paymentStatus = PaymentStatus.PAID;
             order.orderStatus = OrderStatus.CONFIRMED;
-            order.transactionId = reference;
+            order.transactionId = tx_ref;
           }
 
           await this.orderRepo.save(bulkOrders);
         } else {
-          // Update order status
           payment.order.paymentStatus = PaymentStatus.PAID;
           payment.order.orderStatus = OrderStatus.CONFIRMED;
-          payment.order.transactionId = reference;
+          payment.order.transactionId = tx_ref;
 
           await this.orderRepo.save(payment.order);
         }
       }
 
       await this.paymentRepo.save(payment);
-
       return payment;
     } catch (error) {
       console.error(
@@ -400,26 +397,54 @@ export class PaymentsService {
   }
 
   /**
-   * Handle Paystack webhook (for automatic payment notifications)
+   * Handle Flutterwave webhook (for automatic payment notifications)
    */
   async handleWebhook(payload: any, signature: string) {
-    // Verify webhook signature
-    const hash = require('crypto')
-      .createHmac('sha512', this.paystackSecretKey)
-      .update(JSON.stringify(payload))
-      .digest('hex');
-
-    if (hash !== signature) {
+    if (!signature || signature !== this.flwWebhookHash) {
       throw new BadRequestException('Invalid signature');
     }
 
     const { event, data } = payload;
 
-    if (event === 'charge.success') {
-      await this.verifyPayment(data.reference);
+    switch (event) {
+      case 'charge.completed':
+        if (data.status === 'successful') {
+          await this.verifyPayment(String(data.id));
+        }
+        break;
+
+      case 'transfer.completed':
+        await this.handleTransferWebhook(data);
+        break;
     }
 
     return { status: 'success' };
+  }
+
+  private async handleTransferWebhook(data: any) {
+    // data.reference is the PAYOUT-xxx ref you set
+    const payment = await this.paymentRepo.findOne({
+      where: { transferReference: data.reference },
+      relations: ['order'],
+    });
+
+    if (!payment) {
+      console.error(`No payment found for transfer ref: ${data.reference}`);
+      return;
+    }
+
+    if (data.status === 'SUCCESSFUL') {
+      // Transfer confirmed — nothing extra needed, already marked transferredAt
+      console.log(`Payout confirmed for order ${payment.order.id}`);
+    } else if (data.status === 'FAILED') {
+      // Optionally: flag for manual retry, notify admin
+      console.error(
+        `Payout FAILED for order ${payment.order.id} — ref: ${data.reference}`,
+      );
+      payment.transferReference = null; // clear so retry logic can re-attempt
+      payment.transferredAt = null;
+      await this.paymentRepo.save(payment);
+    }
   }
 
   /**
@@ -475,7 +500,7 @@ export class PaymentsService {
     await this.orderRepo.save(orders);
 
     // Here you would typically transfer funds to seller's account
-    // This could be done via Paystack Transfer API or your own logic
+    // This could be done via Flutterwave Transfer API or your own logic
     await this.transferToSeller(payment);
 
     return payment;
@@ -500,7 +525,7 @@ export class PaymentsService {
     let releasedCount = 0;
 
     for (const payment of paymentsToRelease) {
-      const bulkOrderId = payment.paystackResponse?.metadata?.bulkOrderId;
+      const bulkOrderId = payment.flutterwaveResponse?.metadata?.bulkOrderId;
       let orders: Order[] = [payment.order];
 
       if (bulkOrderId) {
@@ -539,37 +564,31 @@ export class PaymentsService {
       bulkOrderId,
     });
 
-    if (!payment) {
-      throw new NotFoundException('Payment not found');
-    }
-
-    if (payment.status !== PaymentStatus.PAID) {
+    if (!payment) throw new NotFoundException('Payment not found');
+    if (payment.status !== PaymentStatus.PAID)
       throw new BadRequestException('Only paid orders can be refunded');
-    }
-
-    if (payment.escrowStatus === 'RELEASED') {
+    if (payment.escrowStatus === 'RELEASED')
       throw new BadRequestException(
         'Cannot refund - payment already released to seller',
       );
-    }
 
     try {
-      // Initiate refund via Paystack
+      // ✅ FLW refund: find the FLW transaction ID from provider response, then call refund
+      const flwTransactionId = payment.flutterwaveResponse?.id; // rename field to providerResponse ideally
+
       const response = await axios.post(
-        `${this.paystackBaseUrl}/refund`,
+        `${this.flwBaseUrl}/transactions/${flwTransactionId}/refund`,
         {
-          transaction: payment.reference,
-          amount: Math.round(payment.amount * 100), // Full refund
+          amount: payment.amount, // ✅ naira directly, no * 100
         },
         {
           headers: {
-            Authorization: `Bearer ${this.paystackSecretKey}`,
+            Authorization: `Bearer ${this.flwSecretKey}`,
             'Content-Type': 'application/json',
           },
         },
       );
 
-      // Update payment status
       payment.status = PaymentStatus.REFUNDED;
       payment.escrowStatus = EscrowStatus.REFUNDED;
       payment.refundedAt = new Date();
@@ -587,42 +606,81 @@ export class PaymentsService {
     }
   }
 
+  async getBankList() {
+    const response = await axios.get(`${this.flwBaseUrl}/banks/NG`, {
+      headers: { Authorization: `Bearer ${this.flwSecretKey}` },
+    });
+    return response.data.data; // [{ id, code, name }]
+  }
+
+ async verifyBankDetails(accountNumber: string, bankCode: string) {
+  try {
+    const response = await axios.post(          // ✅ POST not GET
+      `${this.flwBaseUrl}/accounts/resolve`,
+      {
+        account_number: accountNumber,
+        account_bank: bankCode,                 // ✅ string e.g. "044"
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${this.flwSecretKey}`,
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+
+    return response.data;
+  } catch (error) {
+    console.error('Verify bank error:', error.response?.data || error.message);
+    throw new BadRequestException(
+      error.response?.data?.message || 'Bank verification failed',
+    );
+  }
+}
+
   /**
-   * Transfer funds to seller (via Paystack Transfer API)
+   * Transfer funds to seller (via Flutterwave Transfer API)
    */
   private async transferToSeller(payment: Payment) {
-    // First, create transfer recipient if not exists
     const seller = payment.order.product.seller;
+    if (!seller.bankCode || !seller.accountNumber) {
+      console.error(
+        `Seller ${seller.id} has no bank details — transfer skipped`,
+      );
+      // TODO: notify admin to manually process payout
+      return;
+    }
 
     try {
-      // You'll need to store seller's bank details in your User entity
-      // This is a simplified example
-      const transferResponse = await axios.post<any>(
-        `${this.paystackBaseUrl}/transfer`,
+      const transferRes = await axios.post<any>(
+        `${this.flwBaseUrl}/transfers`,
         {
-          source: 'balance',
-          amount: Math.round(payment.amount * 100),
-          recipient: seller.paystackRecipientCode ?? '', // You need to create and store this
-          reason: `Payment for order ${payment.order.id}`,
+          account_bank: seller.bankCode,
+          account_number: seller.accountNumber,
+          amount: payment.amount,
+          currency: 'NGN',
+          narration: `Payout for order ${payment.order.id}`,
           reference: `PAYOUT-${payment.reference}`,
+          callback_url: `${this.configService.get('BASE_URL')}/payments/webhook`,
         },
         {
           headers: {
-            Authorization: `Bearer ${this.paystackSecretKey}`,
+            Authorization: `Bearer ${this.flwSecretKey}`,
             'Content-Type': 'application/json',
           },
         },
       );
 
-      // Log the transfer
-      payment.transferReference = transferResponse.data.data.reference;
+      const { status, reference } = transferRes.data.data;
+
+      payment.transferReference = reference;
       payment.transferredAt = new Date();
       await this.paymentRepo.save(payment);
 
-      return transferResponse.data;
+      return transferRes.data;
     } catch (error) {
       console.error('Transfer error:', error.response?.data || error.message);
-      // Log error but don't throw - payment is still released, transfer can be retried
+      // Don't throw — escrow released, transfer can be retried manually
     }
   }
 
@@ -692,7 +750,10 @@ export class PaymentsService {
         throw new NotFoundException('Bulk order not found');
       }
 
-      const payment = await this.getPaymentByOrderOrBulk(undefined, bulkOrderId);
+      const payment = await this.getPaymentByOrderOrBulk(
+        undefined,
+        bulkOrderId,
+      );
       return { payment, orders };
     }
 

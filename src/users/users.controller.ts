@@ -17,6 +17,7 @@ import {
 } from '@nestjs/swagger';
 import { UsersService } from './users.service';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { AddBankInfoDto } from './dto/add-bank-info.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth-guard';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import { User } from './entities/user.entity';
@@ -62,5 +63,21 @@ export class UsersController {
     @UploadedFile() file?: Express.Multer.File,
   ) {
     return this.usersService.updateProfile(user.id, dto, file);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('bank-info')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Add or update bank info',
+    description: 'Add or update bank account details for the current user.',
+  })
+  @ApiBody({ type: AddBankInfoDto })
+  @ApiOkResponse({ description: 'Bank info saved successfully' })
+  async addBankInfo(
+    @CurrentUser() user: User,
+    @Body() dto: AddBankInfoDto,
+  ) {
+    return this.usersService.addBankInfo(user.id, dto);
   }
 }

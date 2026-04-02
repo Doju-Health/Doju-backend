@@ -28,6 +28,7 @@ import { PaymentsService } from './payment.service';
 import {
   ConfirmDeliveryDto,
   InitiatePaymentDto,
+  VerifyBankDetailsDto,
   VerifyPaymentDto,
 } from './dto/payment.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth-guard';
@@ -49,9 +50,9 @@ export class PaymentsController {
   @Post('initialize')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({
-    summary: 'Initialize Paystack payment',
+    summary: 'Initialize Flutterwave payment',
     description:
-      'Create a Paystack transaction for an order. Returns authorization URL that redirects user to Paystack payment page.',
+      'Create a Flutterwave transaction for an order. Returns authorization URL that redirects user to Flutterwave payment page.',
   })
   @ApiBearerAuth()
   @ApiBody({
@@ -61,12 +62,11 @@ export class PaymentsController {
   @ApiResponse({
     status: 201,
     description:
-      'Payment initialized successfully. Returns authorization URL, access code, and reference.',
+      'Payment initialized successfully. Returns authorization URL and reference.',
     schema: {
       example: {
-        authorizationUrl: 'https://checkout.paystack.com/...',
-        accessCode: 'code_..',
-        reference: 'ref_...',
+        authorizationUrl: 'https://checkout.flutterwave.com/v3/hosted/pay/...',
+        reference: 'MED-1711980000000-123456',
       },
     },
   })
@@ -79,6 +79,65 @@ export class PaymentsController {
   @ApiResponse({ status: 500, description: 'Payment initialization failed' })
   async initiatePayment(@Body() dto: InitiatePaymentDto, @Request() req) {
     return this.paymentService.initiatePayment(dto, req.user);
+  }
+
+  /**
+   * Get Flutterwave bank list (NG)
+   * GET /payments/banks
+   */
+  @Get('banks')
+  // @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get Flutterwave bank list (NG)',
+    description: 'Retrieve the list of Nigerian banks from Flutterwave.',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Bank list retrieved successfully',
+    schema: {
+      example: [
+        { id: 1, code: '044', name: 'Access Bank' },
+        { id: 2, code: '011', name: 'First Bank of Nigeria' },
+      ],
+    },
+  })
+  @ApiResponse({ status: 401, description: 'Missing or invalid JWT token' })
+  async getBankList() {
+    return this.paymentService.getBankList();
+  }
+
+  /**
+   * Verify bank account details (Flutterwave)
+   * POST /payments/banks/verify
+   */
+  @Post('banks/verify')
+  // @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Verify bank account details',
+    description:
+      'Verify a bank account number and bank code via Flutterwave.',
+  })
+  @ApiBody({ type: VerifyBankDetailsDto })
+  @ApiResponse({
+    status: 200,
+    description: 'Bank details verified successfully',
+    schema: {
+      example: {
+        account_number: '0123456789',
+        account_name: 'JOHN DOE',
+        bank_code: '044',
+      },
+    },
+  })
+  @ApiResponse({ status: 400, description: 'Invalid bank details' })
+  @ApiResponse({ status: 401, description: 'Missing or invalid JWT token' })
+  async verifyBankDetails(@Body() dto: VerifyBankDetailsDto) {
+    return this.paymentService.verifyBankDetails(
+      dto.accountNumber,
+      dto.bankCode,
+    );
   }
 
   /**
@@ -126,7 +185,7 @@ export class PaymentsController {
   @ApiQuery({
     name: 'provider',
     required: false,
-    description: 'Filter by provider (e.g., PAYSTACK)',
+    description: 'Filter by provider (e.g., FLUTTERWAVE)',
   })
   getTransactions(
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
@@ -193,7 +252,7 @@ export class PaymentsController {
   @ApiQuery({
     name: 'provider',
     required: false,
-    description: 'Filter by provider (e.g., PAYSTACK)',
+    description: 'Filter by provider (e.g., FLUTTERWAVE)',
   })
   getMyTransactions(
     @Request() req,
@@ -222,21 +281,21 @@ export class PaymentsController {
   }
 
   /**
-   * Verify payment after user completes payment on Paystack
+   * Verify payment after user completes payment on Flutterwave
    * GET /payments/verify/:reference
    */
-  @Get('verify/:reference')
+  @Get('verify')
   @UseGuards(JwtAuthGuard)
   @ApiOperation({
-    summary: 'Verify Paystack payment',
+    summary: 'Verify Flutterwave payment',
     description:
-      'Verify the status of a payment transaction on Paystack. Updates order status and escrow status if payment is successful.',
+      'Verify the status of a payment transaction on Flutterwave. Updates order status and escrow status if payment is successful.',
   })
   @ApiBearerAuth()
-  @ApiParam({
-    name: 'reference',
-    description: 'Paystack payment reference',
-    example: 'ref_12345abcde',
+  @ApiQuery({
+    name: 'transaction_id',
+    description: 'Flutterwave transaction ID',
+    example: '1234567',
   })
   @ApiResponse({
     status: 200,
@@ -245,10 +304,11 @@ export class PaymentsController {
     schema: {
       example: {
         id: 'uuid',
-        reference: 'ref_12345abcde',
+        reference: 'MED-1711980000000-123456',
         status: 'PAID',
         escrowStatus: 'HELD',
         amount: 5000,
+        provider: 'FLUTTERWAVE',
         paidAt: '2026-02-10T10:00:00Z',
       },
     },
@@ -256,25 +316,25 @@ export class PaymentsController {
   @ApiResponse({ status: 400, description: 'Invalid payment reference' })
   @ApiResponse({ status: 404, description: 'Payment record not found' })
   @ApiResponse({ status: 500, description: 'Payment verification failed' })
-  async verifyPayment(@Param('reference') reference: string) {
-    return this.paymentService.verifyPayment(reference);
+async verify(@Query('transaction_id') transactionId: string) {
+    return this.paymentService.verifyPayment(transactionId);
   }
 
   /**
-   * Paystack webhook endpoint for automatic payment notifications
+   * Flutterwave webhook endpoint for automatic payment notifications
    * POST /payments/webhook
    */
   @Post('webhook')
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
-    summary: 'Paystack webhook handler',
+    summary: 'Flutterwave webhook handler',
     description:
-      'Receives and processes webhook notifications from Paystack for payment events. Verifies signature to ensure authenticity.',
+      'Receives and processes webhook notifications from Flutterwave for payment events. Verifies signature to ensure authenticity.',
   })
-  @ApiBody({ type: Object, description: 'Paystack webhook payload' })
+  @ApiBody({ type: Object, description: 'Flutterwave webhook payload' })
   @ApiHeader({
-    name: 'x-paystack-signature',
-    description: 'Paystack webhook signature for verification',
+    name: 'x-flutterwave-signature',
+    description: 'Flutterwave webhook signature for verification',
     required: true,
   })
   @ApiResponse({
@@ -283,12 +343,9 @@ export class PaymentsController {
     schema: { example: { status: 'success' } },
   })
   @ApiResponse({ status: 400, description: 'Invalid webhook signature' })
-  async handleWebhook(
-    @Body() payload: any,
-    @Headers('x-paystack-signature') signature: string,
-  ) {
-    return this.paymentService.handleWebhook(payload, signature);
-  }
+  async webhook(@Body() payload: any, @Headers('verif-hash') signature: string) {
+  return this.paymentService.handleWebhook(payload, signature);
+}
 
   /**
    * Buyer confirms delivery and releases payment from escrow to seller
@@ -363,11 +420,11 @@ export class PaymentsController {
       example: {
         id: 'uuid',
         orderId: '550e8400-e29b-41d4-a716-446655440000',
-        reference: 'ref_...',
+        reference: 'MED-1711980000000-123456',
         status: 'PAID',
         amount: 5000,
         escrowStatus: 'HELD',
-        provider: 'PAYSTACK',
+        provider: 'FLUTTERWAVE',
       },
     },
   })
