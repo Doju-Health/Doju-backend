@@ -242,7 +242,8 @@ export class AuthController {
   })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT token' })
   async getProfile(@Req() req: any) {
-    return { user: req.user };
+    const user = await this.authService.getUserProfile(req.user.id);
+    return { user };
   }
 
   @Post('forgot-password')

@@ -485,10 +485,7 @@ async verify(@Query('transaction_id') transactionId: string) {
     // You should add admin role check here
     const bulkOrderId = orderId.startsWith('bulk-') ? orderId : undefined;
     const resolvedOrderId = bulkOrderId ? undefined : orderId;
-    return this.paymentService.confirmDeliveryAndRelease(
-      resolvedOrderId,
-      req.user,
-      bulkOrderId,
+    return this.paymentService.autoReleaseEscrow(
     );
   }
 

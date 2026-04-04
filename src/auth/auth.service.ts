@@ -325,6 +325,31 @@ export class AuthService {
   }
 
   /**
+   * Get full user profile (excluding sensitive fields)
+   */
+  async getUserProfile(userId: string) {
+    const user = await this.userRepo.findOne({
+      where: { id: userId },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    // Strip sensitive fields before returning
+    const {
+      password,
+      verificationOtp,
+      verificationOtpExpires,
+      passwordResetOtp,
+      passwordResetOtpExpires,
+      ...safeUser
+    } = user;
+
+    return safeUser;
+  }
+
+  /**
    * Generate JWT token and return user data
    */
   private generateToken(user: User) {

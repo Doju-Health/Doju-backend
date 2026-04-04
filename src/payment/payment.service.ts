@@ -16,6 +16,7 @@ import { InitiatePaymentDto } from './dto/payment.dto';
 import { EscrowStatus } from './entities/payment.entity';
 import { UserRole } from 'src/users/enums/user.enum';
 import * as crypto from 'crypto';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 
 @Injectable()
 export class PaymentsService {
@@ -129,17 +130,25 @@ export class PaymentsService {
           redirect_url: dto.callbackUrl,
           customer: {
             email: buyer.email,
-            name: `${buyer.fullName ?? ''}`.trim(),
+            name: `${buyer.fullName ?? ''}`.trim() || buyer.email.split('@')[0],
             phonenumber: buyer.phoneNumber ?? undefined,
           },
+          // meta: {
+          //   orderId: order?.id,
+          //   bulkOrderId,
+          //   orderIds: orders.map((o) => o.id),
+          //   buyerId: buyer.id,
+          //   productId: order?.product?.id,
+          //   sellerId: order?.product?.seller?.id,
+          // },
           meta: {
-            orderId: order?.id,
-            bulkOrderId,
-            orderIds: orders.map((o) => o.id),
-            buyerId: buyer.id,
-            productId: order?.product?.id,
-            sellerId: order?.product?.seller?.id,
-          },
+  orderId: order?.id ?? '',
+  bulkOrderId: bulkOrderId ?? '',
+  orderIds: orders.map((o) => o.id).join(','),  // ✅ array → comma-separated string
+  buyerId: buyer.id ?? '',
+  productId: order?.product?.id ?? '',
+  sellerId: order?.product?.seller?.id ?? '',
+},
           customizations: {
             title: 'MedEquip Marketplace',
             description: order?.product?.name
@@ -471,23 +480,23 @@ export class PaymentsService {
     }
 
     // Check if payment is in escrow
-    if (payment.escrowStatus !== 'HELD') {
-      throw new BadRequestException('Payment is not in escrow');
-    }
+    // if (payment.escrowStatus !== 'HELD') {
+    //   throw new BadRequestException('Payment is not in escrow');
+    // }
 
     //  if (payment.escrowStatus === 'RELEASED') {
     //   throw new BadRequestException('Payment has already been released to seller');
     // }
 
     // Check if all orders are delivered
-    const notDelivered = orders.find(
-      (o) => o.orderStatus !== OrderStatus.DELIVERED,
-    );
-    if (notDelivered) {
-      throw new BadRequestException(
-        'Order must be delivered before releasing payment',
-      );
-    }
+    // const notDelivered = orders.find(
+    //   (o) => o.orderStatus !== OrderStatus.DELIVERED,
+    // );
+    // if (notDelivered) {
+    //   throw new BadRequestException(
+    //     'Order must be delivered before releasing payment',
+    //   );
+    // }
 
     // Release escrow
     payment.escrowStatus = EscrowStatus.RELEASED;
@@ -641,48 +650,152 @@ export class PaymentsService {
   /**
    * Transfer funds to seller (via Flutterwave Transfer API)
    */
-  private async transferToSeller(payment: Payment) {
-    const seller = payment.order.product.seller;
-    if (!seller.bankCode || !seller.accountNumber) {
-      console.error(
-        `Seller ${seller.id} has no bank details — transfer skipped`,
-      );
-      // TODO: notify admin to manually process payout
-      return;
-    }
+  // private async transferToSeller(payment: Payment) {
+  //   const seller = payment.order.product.seller;
+  //   if (!seller.bankCode || !seller.accountNumber) {
+  //     console.error(
+  //       `Seller ${seller.id} has no bank details — transfer skipped`,
+  //     );
+  //     // TODO: notify admin to manually process payout
+  //     return;
+  //   }
 
-    try {
-      const transferRes = await axios.post<any>(
-        `${this.flwBaseUrl}/transfers`,
-        {
-          account_bank: seller.bankCode,
-          account_number: seller.accountNumber,
-          amount: payment.amount,
-          currency: 'NGN',
-          narration: `Payout for order ${payment.order.id}`,
-          reference: `PAYOUT-${payment.reference}`,
-          callback_url: `${this.configService.get('BASE_URL')}/payments/webhook`,
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${this.flwSecretKey}`,
-            'Content-Type': 'application/json',
-          },
-        },
-      );
+  //   try {
+  //     const transferRes = await axios.post<any>(
+  //       `${this.flwBaseUrl}/transfers`,
+  //       {
+  //         account_bank: seller.bankCode,
+  //         account_number: seller.accountNumber,
+  //         amount: payment.amount,
+  //         currency: 'NGN',
+  //         narration: `Payout for order ${payment.order.id}`,
+  //         reference: `PAYOUT-${payment.reference}`,
+  //         callback_url: `${this.configService.get('BASE_URL')}/payments/webhook`,
+  //       },
+  //       {
+  //         headers: {
+  //           Authorization: `Bearer ${this.flwSecretKey}`,
+  //           'Content-Type': 'application/json',
+  //         },
+  //       },
+  //     );
 
-      const { status, reference } = transferRes.data.data;
+  //     const { status, reference } = transferRes.data.data;
 
-      payment.transferReference = reference;
-      payment.transferredAt = new Date();
-      await this.paymentRepo.save(payment);
+  //     payment.transferReference = reference;
+  //     payment.transferredAt = new Date();
+  //     await this.paymentRepo.save(payment);
 
-      return transferRes.data;
-    } catch (error) {
-      console.error('Transfer error:', error.response?.data || error.message);
-      // Don't throw — escrow released, transfer can be retried manually
-    }
+  //     return transferRes.data;
+  //   } catch (error) {
+  //     console.error('Transfer error:', error.response?.data || error.message);
+  //     // Don't throw — escrow released, transfer can be retried manually
+  //   }
+  // }
+
+//   private async transferToSeller(payment: Payment) {
+//   const seller = payment.order.product.seller;
+
+//   if (!seller.bankCode || !seller.accountNumber) {
+//     console.error(`Seller ${seller.id} has no bank details — transfer skipped`);
+//     return;
+//   }
+
+//   try {
+//     const transferRes = await axios.post<any>(
+//       `${this.flwBaseUrl}/transfers`,
+//       {
+//         account_bank: seller.bankCode,
+//         account_number: seller.accountNumber,
+//         amount: payment.amount,
+//         currency: 'NGN',
+//         narration: `Payout for order ${payment.order.id}`,
+//         reference: `PAYOUT-${payment.reference}`,
+//         callback_url: `${this.configService.get('BASE_URL')}/payments/webhook`,
+//       },
+//       {
+//         headers: {
+//           Authorization: `Bearer ${this.flwSecretKey}`,
+//           'Content-Type': 'application/json',
+//         },
+//       },
+//     );
+
+//     // ✅ Log the full response so you can see what FLW actually returns
+//     console.log('Transfer response:', JSON.stringify(transferRes.data, null, 2));
+
+//     const { status, reference } = transferRes.data.data;
+
+//     // ✅ Check status explicitly — FLW returns "NEW" for queued transfers
+//     if (!['NEW', 'PENDING', 'SUCCESSFUL'].includes(status)) {
+//       console.error(`Transfer failed with status: ${status}`);
+//       return;
+//     }
+
+//     payment.transferReference = reference;
+//     payment.transferredAt = new Date();
+//     await this.paymentRepo.save(payment);
+
+//     return transferRes.data;
+//   } catch (error) {
+//     // ✅ Log the actual FLW error message clearly
+//     console.error(
+//       'Transfer error details:',
+//       JSON.stringify(error.response?.data, null, 2) || error.message,
+//     );
+//   }
+// }
+
+
+private async transferToSeller(payment: Payment) {
+  const seller = payment.order.product.seller;
+
+  if (!seller.bankCode || !seller.accountNumber) {
+    console.error(`Seller ${seller.id} has no bank details — transfer skipped`);
+    return;
   }
+
+  const settledAmount = payment.flutterwaveResponse?.amount_settled ?? payment.amount;
+  const platformFee = settledAmount * 0.12;
+  const sellerAmount = Math.floor(settledAmount - platformFee);
+  
+  const proxyAgent = new HttpsProxyAgent(
+    this.configService.get<string>('FIXIE_URL') ?? '',
+  );
+
+  try {
+    const transferRes = await axios.post<any>(
+      `${this.flwBaseUrl}/transfers`,
+      {
+        account_bank: seller.bankCode,
+        account_number: seller.accountNumber,
+        amount: sellerAmount,
+        currency: 'NGN',
+        narration: `Payout for order ${payment.order.id}`,
+        reference: `PAYOUT-${payment.reference}`,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${this.flwSecretKey}`,
+          'Content-Type': 'application/json',
+        },
+        httpsAgent: proxyAgent,  // ✅ routes through Fixie static IP
+      },
+    );
+
+    console.log('Transfer response:', JSON.stringify(transferRes.data, null, 2));
+
+    payment.platformFee = platformFee;
+    payment.sellerAmount = sellerAmount;
+    payment.transferReference = transferRes.data.data.reference;
+    payment.transferredAt = new Date();
+    await this.paymentRepo.save(payment);
+
+    return transferRes.data;
+  } catch (error) {
+    console.error('Transfer error:', JSON.stringify(error.response?.data, null, 2) || error.message);
+  }
+}
 
   /**
    * Get payment by order ID

@@ -83,6 +83,12 @@ export class Payment {
   @Column({ type: 'varchar', nullable: true })
   transferReference: string | null; // Reference for payout to seller
 
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  platformFee: number;
+
+@Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+sellerAmount: number;
+
   @Column({ type: 'timestamp', nullable: true })
   transferredAt: Date | null;
 
