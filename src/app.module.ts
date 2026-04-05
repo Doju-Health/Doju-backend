@@ -15,6 +15,7 @@ import { CartModule } from './cart/cart.module';
 import { TrackingModule } from './tracking/tracking.module';
 import { SellerDashboardModule } from './seller-dashboard/seller-dashboard.module';
 import { AdminModule } from './admin/admin.module';
+import { WaitlistModule } from './waitlist/waitlist.module';
 
 @Module({
   imports: [
@@ -51,6 +52,7 @@ import { AdminModule } from './admin/admin.module';
     TrackingModule,
     SellerDashboardModule,
     AdminModule,
+    WaitlistModule,
   ],
   controllers: [AppController],
   providers: [AppService],

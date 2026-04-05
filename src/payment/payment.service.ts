@@ -357,6 +357,9 @@ export class PaymentsService {
         throw new NotFoundException('Payment record not found');
       }
 
+       if (payment.status === PaymentStatus.PAID) {
+    return payment; // already handled, skip
+  }
       // Update payment record
       payment.status =
         status === 'successful' ? PaymentStatus.PAID : PaymentStatus.FAILED;
@@ -480,23 +483,23 @@ export class PaymentsService {
     }
 
     // Check if payment is in escrow
-    // if (payment.escrowStatus !== 'HELD') {
-    //   throw new BadRequestException('Payment is not in escrow');
-    // }
+    if (payment.escrowStatus !== EscrowStatus.HELD) {
+      throw new BadRequestException('Payment is not in escrow');
+    }
 
-    //  if (payment.escrowStatus === 'RELEASED') {
+    // if (payment.escrowStatus === EscrowStatus.RELEASED) {
     //   throw new BadRequestException('Payment has already been released to seller');
     // }
 
     // Check if all orders are delivered
-    // const notDelivered = orders.find(
-    //   (o) => o.orderStatus !== OrderStatus.DELIVERED,
-    // );
-    // if (notDelivered) {
-    //   throw new BadRequestException(
-    //     'Order must be delivered before releasing payment',
-    //   );
-    // }
+    const notDelivered = orders.find(
+      (o) => o.orderStatus !== OrderStatus.DELIVERED,
+    );
+    if (notDelivered) {
+      throw new BadRequestException(
+        'Order must be delivered before releasing payment',
+      );
+    }
 
     // Release escrow
     payment.escrowStatus = EscrowStatus.RELEASED;
@@ -527,7 +530,7 @@ export class PaymentsService {
       .leftJoinAndSelect('payment.order', 'order')
       .leftJoinAndSelect('order.product', 'product')
       .leftJoinAndSelect('product.seller', 'seller')
-      .where('payment.escrowStatus = :status', { status: 'HELD' })
+      .where('payment.escrowStatus = :status', { status: EscrowStatus.HELD })
       .andWhere('payment.escrowHeldAt <= :cutoffDate', { cutoffDate })
       .getMany();
 

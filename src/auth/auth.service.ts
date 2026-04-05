@@ -3,6 +3,7 @@ import {
   BadRequestException,
   UnauthorizedException,
   NotFoundException,
+  Logger
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -14,13 +15,18 @@ import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { EmailService } from '../email/email.service';
 
+
 @Injectable()
 export class AuthService {
+
+ private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @InjectRepository(User)
     private userRepo: Repository<User>,
     private jwtService: JwtService,
     private emailService: EmailService,
+
     // @InjectRepository(PasswordResetOtp),
     // private passwordResetOtpRepo: Repository<PasswordResetOtp>,
   ) {}
@@ -148,6 +154,20 @@ export class AuthService {
     user.verificationOtpExpires = undefined;
 
     await this.userRepo.save(user);
+
+    try {
+      await this.emailService.sendWelcomeOnboardEmail(
+        user.email,
+        user.fullName,
+        user.role,
+      );
+    } catch (error) {
+      // Log but don't rethrow — email failure shouldn't break verification
+      this.logger.error(
+        `Welcome email failed for ${user.email}: ${error.message}`,
+        error.stack,
+      );
+    }
 
     return {
       message: 'Email verified successfully',

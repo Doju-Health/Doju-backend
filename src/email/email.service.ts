@@ -83,4 +83,42 @@ export class EmailService {
       html,
     });
   }
+
+  /**
+   * Send welcome onboarding email after verification
+   */
+  async sendWelcomeOnboardEmail(
+    email: string,
+    fullName?: string,
+    role?: string,
+  ): Promise<void> {
+    const html = nunjucks.render('welcome-onboard.njk', {
+      fullName: fullName || 'there',
+      email,
+      role,
+    });
+
+    await this.transporter.sendMail({
+      from: process.env.SMTP_FROM || 'noreply@doju.com',
+      to: email,
+      subject: 'Welcome to DOJU',
+      html,
+    });
+  }
+
+  /**
+   * Send waitlist welcome email
+   */
+  async sendWaitlistWelcomeEmail(email: string): Promise<void> {
+    const html = nunjucks.render('waitlist-welcome.njk', {
+      email,
+    });
+
+    await this.transporter.sendMail({
+      from: process.env.SMTP_FROM || 'noreply@doju.com',
+      to: email,
+      subject: "You're on the DOJU waitlist",
+      html,
+    });
+  }
 }
