@@ -368,12 +368,18 @@ async verify(@Query('transaction_id') transactionId: string) {
     description: 'Delivery confirmed and escrow released successfully',
     schema: {
       example: {
-        id: 'uuid',
-        reference: 'ref_...',
-        status: 'PAID',
-        escrowStatus: 'RELEASED',
-        amount: 5000,
-        escrowReleasedAt: '2026-02-10T12:00:00Z',
+        payment: {
+          id: 'uuid',
+          reference: 'ref_...',
+          status: 'PAID',
+          escrowStatus: 'RELEASED',
+          amount: 5000,
+          escrowReleasedAt: '2026-02-10T12:00:00Z',
+        },
+        payout: {
+          status: 'QUEUED',
+          message: 'Insufficient payout balance (12345) — queuing transfer for later',
+        },
       },
     },
   })

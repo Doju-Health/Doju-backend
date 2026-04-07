@@ -87,6 +87,45 @@ export class ProductsController {
     return this.productsService.findAll({ page, limit, categoryId });
   }
 
+  @Get('approved')
+  @ApiOperation({
+    summary: 'Get all approved products',
+    description:
+      'Retrieve approved healthcare equipment products with pagination and optional category filter',
+  })
+  @ApiOkResponse({
+    description: 'Successfully retrieved approved products',
+    type: PaginatedProductsResponseDto,
+  })
+  @ApiQuery({
+    name: 'page',
+    required: false,
+    type: Number,
+    example: 1,
+    description: 'Page number (minimum 1)',
+  })
+  @ApiQuery({
+    name: 'limit',
+    required: false,
+    type: Number,
+    example: 10,
+    description: 'Items per page (minimum 1, maximum 100)',
+  })
+  @ApiQuery({
+    name: 'categoryId',
+    required: false,
+    type: String,
+    example: '123e4567-e89b-12d3-a456-426614174000',
+    description: 'Filter products by category UUID',
+  })
+  getApproved(
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+    @Query('categoryId') categoryId?: string,
+  ) {
+    return this.productsService.findApproved({ page, limit, categoryId });
+  }
+
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.SELLER)
   @Get('me')

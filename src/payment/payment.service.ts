@@ -5,7 +5,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Brackets } from 'typeorm';
+import { Repository, Brackets, IsNull } from 'typeorm';
 import { Payment } from './entities/payment.entity';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
@@ -513,14 +513,16 @@ export class PaymentsService {
 
     // Here you would typically transfer funds to seller's account
     // This could be done via Flutterwave Transfer API or your own logic
-    await this.transferToSeller(payment);
+    const payout = await this.transferToSeller(payment);
 
-    return payment;
+    return {
+      message:
+        'Delivery has been confirmed and payment to seller is being processed. Funds will be released to the seller within 1-2 business days.',
+      payment,
+      payout,
+    };
   }
 
-  /**
-   * Auto-release escrow after specified days if no dispute
-   */
   async autoReleaseEscrow(days: number = 7) {
     const cutoffDate = new Date();
     cutoffDate.setDate(cutoffDate.getDate() - days);
@@ -748,20 +750,56 @@ export class PaymentsService {
 //     );
 //   }
 // }
+  async retryPendingTransfers() {
+  // Find all payments where escrow is released but transfer hasn't happened yet
+  const pendingTransfers = await this.paymentRepo.find({
+    where: {
+      escrowStatus: EscrowStatus.RELEASED,
+      transferReference: IsNull(), // transfer not yet done
+    },
+    relations: ['order', 'order.product', 'order.product.seller'],
+  });
 
+  console.log(`Found ${pendingTransfers.length} pending transfers`);
 
-private async transferToSeller(payment: Payment) {
+  for (const payment of pendingTransfers) {
+    await this.transferToSeller(payment);
+  }
+}
+
+async getPayoutBalance(): Promise<number> {
+  const response = await axios.get(
+    `${this.flwBaseUrl}/balances/NGN`,
+    { headers: { Authorization: `Bearer ${this.flwSecretKey}` } },
+  );
+  return response.data.data.available_balance;
+}
+
+private async transferToSeller(payment: Payment): Promise<{
+  status: 'QUEUED' | 'SENT' | 'SKIPPED' | 'FAILED';
+  message?: string;
+  balance?: number;
+  reference?: string;
+}> {
+  const balance = await this.getPayoutBalance();
   const seller = payment.order.product.seller;
 
   if (!seller.bankCode || !seller.accountNumber) {
-    console.error(`Seller ${seller.id} has no bank details â€” transfer skipped`);
-    return;
+    console.error(`Seller ${seller.id} has no bank details — transfer skipped`);
+    return { status: 'SKIPPED', message: 'Seller has no bank details' };
   }
 
-  const settledAmount = payment.flutterwaveResponse?.amount_settled ?? payment.amount;
+  const settledAmount =
+    payment.flutterwaveResponse?.amount_settled ?? payment.amount;
   const platformFee = settledAmount * 0.12;
   const sellerAmount = Math.floor(settledAmount - platformFee);
-  
+
+  if (balance < sellerAmount + 10) { // +10 for transfer fee
+    const message = `Insufficient payout balance (${balance}) — queuing transfer for later`;
+    console.log(message);
+    // Don't throw — cron job will retry
+    return { status: 'QUEUED', message, balance };
+  }
   const proxyAgent = new HttpsProxyAgent(
     this.configService.get<string>('FIXIE_URL') ?? '',
   );
@@ -782,7 +820,7 @@ private async transferToSeller(payment: Payment) {
           Authorization: `Bearer ${this.flwSecretKey}`,
           'Content-Type': 'application/json',
         },
-        httpsAgent: proxyAgent,  // âœ… routes through Fixie static IP
+        httpsAgent: proxyAgent, // routes through Fixie static IP
       },
     );
 
@@ -794,12 +832,18 @@ private async transferToSeller(payment: Payment) {
     payment.transferredAt = new Date();
     await this.paymentRepo.save(payment);
 
-    return transferRes.data;
+    return {
+      status: 'SENT',
+      reference: transferRes.data.data.reference,
+    };
   } catch (error) {
-    console.error('Transfer error:', JSON.stringify(error.response?.data, null, 2) || error.message);
+    console.error(
+      'Transfer error:',
+      JSON.stringify(error.response?.data, null, 2) || error.message,
+    );
+    return { status: 'FAILED', message: 'Transfer request failed' };
   }
 }
-
   /**
    * Get payment by order ID
    */

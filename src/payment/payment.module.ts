@@ -5,6 +5,7 @@ import { Payment } from './entities/payment.entity';
 import { Order } from 'src/orders/entities/order.entity';
 import { PaymentsService } from './payment.service';
 import { PaymentsController } from './payments.controller';
+import { PaymentScheduler } from './payment.schedular';
 
 @Module({
   imports: [
@@ -12,7 +13,7 @@ import { PaymentsController } from './payments.controller';
     ConfigModule,
   ],
   controllers: [PaymentsController],
-  providers: [PaymentsService],
+  providers: [PaymentsService, PaymentScheduler],
   exports: [PaymentsService],
 
 })

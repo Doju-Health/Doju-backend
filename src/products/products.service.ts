@@ -102,6 +102,46 @@ export class ProductsService {
     };
   }
 
+  async findApproved({
+    page = 1,
+    limit = 10,
+    categoryId,
+  }: {
+    page?: number;
+    limit?: number;
+    categoryId?: string;
+  }) {
+    const safePage = Math.max(page, 1);
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+
+    const queryBuilder = this.productRepo
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.category', 'category')
+      .leftJoinAndSelect('product.seller', 'seller')
+      .where('product.isActive = :isActive', { isActive: true })
+      .andWhere('product.isApproved = :isApproved', { isApproved: true });
+
+    if (categoryId) {
+      queryBuilder.andWhere('category.id = :categoryId', { categoryId });
+    }
+
+    const [data, total] = await queryBuilder
+      .orderBy('product.createdAt', 'DESC')
+      .skip((safePage - 1) * safeLimit)
+      .take(safeLimit)
+      .getManyAndCount();
+
+    return {
+      data,
+      meta: {
+        total,
+        page: safePage,
+        limit: safeLimit,
+        totalPages: Math.ceil(total / safeLimit),
+      },
+    };
+  }
+
   async findBySeller(sellerId: string) {
     return this.productRepo.find({
       where: { seller: { id: sellerId }, isActive: true },
