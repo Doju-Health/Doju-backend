@@ -483,23 +483,19 @@ export class PaymentsService {
     }
 
     // Check if payment is in escrow
-    if (payment.escrowStatus !== EscrowStatus.HELD) {
-      throw new BadRequestException('Payment is not in escrow');
-    }
-
-    // if (payment.escrowStatus === EscrowStatus.RELEASED) {
-    //   throw new BadRequestException('Payment has already been released to seller');
+    // if (payment.escrowStatus !== EscrowStatus.HELD) {
+    //   throw new BadRequestException('Payment is not in escrow');
     // }
 
-    // Check if all orders are delivered
-    const notDelivered = orders.find(
-      (o) => o.orderStatus !== OrderStatus.DELIVERED,
-    );
-    if (notDelivered) {
-      throw new BadRequestException(
-        'Order must be delivered before releasing payment',
-      );
-    }
+    // // Check if all orders are delivered
+    // const notDelivered = orders.find(
+    //   (o) => o.orderStatus !== OrderStatus.DELIVERED,
+    // );
+    // if (notDelivered) {
+    //   throw new BadRequestException(
+    //     'Order must be delivered before releasing payment',
+    //   );
+    // }
 
     // Release escrow
     payment.escrowStatus = EscrowStatus.RELEASED;
@@ -785,7 +781,7 @@ private async transferToSeller(payment: Payment): Promise<{
   const seller = payment.order.product.seller;
 
   if (!seller.bankCode || !seller.accountNumber) {
-    console.error(`Seller ${seller.id} has no bank details — transfer skipped`);
+    console.error(`Seller ${seller.id} has no bank details ï¿½ transfer skipped`);
     return { status: 'SKIPPED', message: 'Seller has no bank details' };
   }
 
@@ -795,9 +791,9 @@ private async transferToSeller(payment: Payment): Promise<{
   const sellerAmount = Math.floor(settledAmount - platformFee);
 
   if (balance < sellerAmount + 10) { // +10 for transfer fee
-    const message = `Insufficient payout balance (${balance}) — queuing transfer for later`;
+    const message = `Insufficient payout balance (${balance}) ï¿½ queuing transfer for later`;
     console.log(message);
-    // Don't throw — cron job will retry
+    // Don't throw ï¿½ cron job will retry
     return { status: 'QUEUED', message, balance };
   }
   const proxyAgent = new HttpsProxyAgent(
