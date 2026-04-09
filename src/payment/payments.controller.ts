@@ -281,6 +281,43 @@ export class PaymentsController {
   }
 
   /**
+   * Get transaction by ID
+   * GET /payments/transactions/:id
+   */
+  @Get('transactions/:id')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get transaction by ID',
+    description:
+      'Retrieve a single transaction. Admins can access any transaction; buyers/sellers can only access their own.',
+  })
+  @ApiParam({
+    name: 'id',
+    description: 'Payment transaction UUID',
+    example: '550e8400-e29b-41d4-a716-446655440000',
+  })
+  @ApiResponse({
+    status: 200,
+    description: 'Transaction retrieved successfully',
+    schema: {
+      example: {
+        id: 'uuid',
+        reference: 'MED-1711980000000-123456',
+        status: 'PAID',
+        escrowStatus: 'HELD',
+        amount: 5000,
+        provider: 'FLUTTERWAVE',
+        createdAt: '2026-02-10T10:00:00Z',
+      },
+    },
+  })
+  @ApiResponse({ status: 404, description: 'Transaction not found' })
+  getTransactionById(@Param('id') id: string, @Request() req) {
+    return this.paymentService.getTransactionById(id, req.user);
+  }
+
+  /**
    * Verify payment after user completes payment on Flutterwave
    * GET /payments/verify/:reference
    */

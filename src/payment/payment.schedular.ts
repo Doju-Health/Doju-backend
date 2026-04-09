@@ -7,7 +7,7 @@ import { Injectable } from '@nestjs/common/decorators/core/injectable.decorator'
 export class PaymentScheduler {
   constructor(private paymentsService: PaymentsService) {}
 
-  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  @Cron('0 0,12 * * *') // Twice daily: midnight and noon
   async processPendingTransfers() {
     await this.paymentsService.retryPendingTransfers();
   }
