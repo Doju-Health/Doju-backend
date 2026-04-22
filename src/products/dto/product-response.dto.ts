@@ -33,6 +33,12 @@ export class ProductResponseDto {
   stock: number;
 
   @ApiProperty({
+    example: 1.5,
+    description: 'Product weight in kilograms',
+  })
+  weight: number;
+
+  @ApiProperty({
     example: {
       id: 'category-123',
       name: 'Respiratory Equipment',

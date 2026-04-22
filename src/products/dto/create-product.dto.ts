@@ -45,6 +45,15 @@ export class CreateProductDto {
   stock: number;
 
   @ApiProperty({
+    example: 1.5,
+    description: 'Weight of the product in kilograms',
+  })
+  @IsNumber()
+  @Min(0)
+  weight: number; 
+  
+
+  @ApiProperty({
     example: '123e4567-e89b-12d3-a456-426614174000',
     description: 'Category ID (UUID)',
   })

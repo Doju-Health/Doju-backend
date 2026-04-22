@@ -183,6 +183,7 @@ export class ProductsController {
         description: { type: 'string' },
         price: { type: 'number' },
         stock: { type: 'number' },
+        weight: { type: 'number' },
         categoryId: { type: 'string', format: 'uuid' },
         imageUrl: {
           type: 'array',
@@ -242,6 +243,7 @@ export class ProductsController {
         description: { type: 'string' },
         price: { type: 'number' },
         stock: { type: 'number' },
+        weight: { type: 'number' },
         categoryId: { type: 'string', format: 'uuid' },
         imageUrl: {
           type: 'array',

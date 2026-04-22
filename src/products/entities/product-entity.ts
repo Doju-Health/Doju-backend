@@ -27,6 +27,9 @@ export class Product {
   @Column()
   stock: number;
 
+  @Column('decimal', { precision: 10, scale: 2, default: 0 })
+  weight: number;
+
   @Column('text', { array: true, nullable: true })
   imageUrl?: string[];
 
