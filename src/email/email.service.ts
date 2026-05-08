@@ -1,24 +1,15 @@
 import { Injectable } from '@nestjs/common';
-import * as nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 import * as nunjucks from 'nunjucks';
-import * as fs from 'fs';
 import * as path from 'path';
 
 @Injectable()
 export class EmailService {
-  private transporter: nodemailer.Transporter;
+  private resend: Resend;
 
   constructor() {
-    // Initialize email transporter
-    this.transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST || 'smtp.gmail.com',
-      port: parseInt(process.env.SMTP_PORT || '587'),
-      secure: process.env.SMTP_SECURE === 'true' || false, // true for 465, false for other ports
-      auth: {
-        user: process.env.SMTP_USER,
-        pass: process.env.SMTP_PASSWORD,
-      },
-    });
+    // Initialize Resend client
+    this.resend = new Resend(process.env.RESEND_API_KEY);
 
     // Configure nunjucks
     nunjucks.configure(path.join(__dirname, '../../templates'), {
@@ -41,8 +32,8 @@ export class EmailService {
       expiryTime: '10 minutes',
     });
 
-    await this.transporter.sendMail({
-      from: process.env.SMTP_FROM || 'noreply@doju.com',
+    await this.resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || 'noreply@dojuhealth.com',
       to: email,
       subject: 'Verify Your Email - DOJU',
       html,
@@ -64,8 +55,8 @@ export class EmailService {
       expiryTime: '1 hour',
     });
 
-    await this.transporter.sendMail({
-      from: process.env.SMTP_FROM || 'noreply@doju.com',
+    await this.resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || 'noreply@dojuhealth.com',
       to: email,
       subject: 'Reset Your Password - DOJU',
       html,
@@ -76,8 +67,8 @@ export class EmailService {
    * Send generic email
    */
   async sendEmail(to: string, subject: string, html: string): Promise<void> {
-    await this.transporter.sendMail({
-      from: process.env.SMTP_FROM || 'noreply@doju.com',
+    await this.resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || 'noreply@dojuhealth.com',
       to,
       subject,
       html,
@@ -98,8 +89,8 @@ export class EmailService {
       role,
     });
 
-    await this.transporter.sendMail({
-      from: process.env.SMTP_FROM || 'noreply@doju.com',
+    await this.resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || 'noreply@dojuhealth.com',
       to: email,
       subject: 'Welcome to DOJU',
       html,
@@ -114,8 +105,8 @@ export class EmailService {
       email,
     });
 
-    await this.transporter.sendMail({
-      from: process.env.SMTP_FROM || 'noreply@doju.com',
+    await this.resend.emails.send({
+      from: process.env.RESEND_FROM_EMAIL || 'noreply@dojuhealth.com',
       to: email,
       subject: "You're on the DOJU waitlist",
       html,
