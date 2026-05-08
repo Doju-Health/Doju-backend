@@ -17,7 +17,7 @@ export class DeliveryRateCardService {
   }
 
   private initializeRateCard() {
-    // Format: "ZONE_X-ZONE_Y"
+    // Format: "ZONE_X-ZONEE_Y"
     this.rateCard.set('1-1', {
       smallPack: 1400,
       mediumPack: 3600,
