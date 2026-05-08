@@ -7,17 +7,21 @@ import {
 
 export class AddDeliveryFeatureToOrderAndProduct1777600000000 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // Update products table - change weight from decimal to varchar (enum)
-    await queryRunner.changeColumn(
-      'products',
-      'weight',
-      new TableColumn({
-        name: 'weight',
-        type: 'varchar',
-        enum: ['small', 'medium', 'large'],
-        default: "'small'",
-      }),
-    );
+    // Older databases may not have the `weight` column yet, so only update it when present.
+    const productsTable = await queryRunner.getTable('products');
+    const weightColumn = productsTable?.findColumnByName('weight');
+    if (weightColumn) {
+      await queryRunner.changeColumn(
+        'products',
+        'weight',
+        new TableColumn({
+          name: 'weight',
+          type: 'varchar',
+          enum: ['small', 'medium', 'large'],
+          default: "'small'",
+        }),
+      );
+    }
 
     // Update orders table - add delivery columns
     await queryRunner.addColumn(
@@ -61,18 +65,22 @@ export class AddDeliveryFeatureToOrderAndProduct1777600000000 implements Migrati
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
-    // Revert products table
-    await queryRunner.changeColumn(
-      'products',
-      'weight',
-      new TableColumn({
-        name: 'weight',
-        type: 'decimal',
-        precision: 10,
-        scale: 2,
-        default: 0,
-      }),
-    );
+    // Revert products table only if the column exists.
+    const productsTable = await queryRunner.getTable('products');
+    const weightColumn = productsTable?.findColumnByName('weight');
+    if (weightColumn) {
+      await queryRunner.changeColumn(
+        'products',
+        'weight',
+        new TableColumn({
+          name: 'weight',
+          type: 'decimal',
+          precision: 10,
+          scale: 2,
+          default: 0,
+        }),
+      );
+    }
 
     // Revert orders table
     await queryRunner.dropColumn('orders', 'departureZone');
