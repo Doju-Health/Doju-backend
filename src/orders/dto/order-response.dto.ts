@@ -56,6 +56,41 @@ export class OrderResponseDto {
   })
   totalPrice: number;
 
+  @ApiProperty({
+    example: 3500,
+    description: 'Delivery fee charged for this order',
+    nullable: true,
+  })
+  deliveryFee?: number | null;
+
+  @ApiProperty({
+    example: null,
+    description: 'Platform fee deducted from the payout',
+    nullable: true,
+  })
+  platformFee?: number | null;
+
+  @ApiProperty({
+    example: null,
+    description: 'Amount the seller receives after deductions',
+    nullable: true,
+  })
+  sellerAmount?: number | null;
+
+  @ApiProperty({
+    example: 300,
+    description: 'Estimated platform fee before payout settlement',
+    nullable: true,
+  })
+  estimatedPlatformFee?: number | null;
+
+  @ApiProperty({
+    example: 2200,
+    description: 'Estimated seller amount before payout settlement',
+    nullable: true,
+  })
+  estimatedSellerAmount?: number | null;
+
   @ApiPropertyOptional({
     example: 'bulk-123e4567-e89b-12d3-a456-426614174000',
     description: 'Shared order identifier for bulk purchases',

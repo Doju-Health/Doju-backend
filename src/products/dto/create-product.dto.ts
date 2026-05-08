@@ -6,9 +6,12 @@ import {
   IsString,
   IsArray,
   IsUUID,
+  IsIn,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+
+const PRODUCT_SIZES = ['small', 'medium', 'large'] as const;
 
 export class CreateProductDto {
   @ApiProperty({
@@ -45,13 +48,14 @@ export class CreateProductDto {
   stock: number;
 
   @ApiProperty({
-    example: 1.5,
-    description: 'Weight of the product in kilograms',
+    enum: PRODUCT_SIZES,
+    example: 'medium',
+    description: 'Package size used for delivery pricing',
   })
-  @IsNumber()
-  @Min(0)
-  weight: number; 
-  
+  @IsNotEmpty()
+  @IsString()
+  @IsIn(PRODUCT_SIZES)
+  size: 'small' | 'medium' | 'large';
 
   @ApiProperty({
     example: '123e4567-e89b-12d3-a456-426614174000',

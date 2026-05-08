@@ -6,7 +6,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { User } from '../../users/entities/user.entity'
+import { User } from '../../users/entities/user.entity';
 // import { User } from 'src/users/entities/user.entity';
 import { ProductCategory } from './product-category.entity';
 
@@ -27,8 +27,12 @@ export class Product {
   @Column()
   stock: number;
 
-  @Column('decimal', { precision: 10, scale: 2, default: 0 })
-  weight: number;
+  @Column({
+    type: 'varchar',
+    enum: ['small', 'medium', 'large'],
+    default: 'small',
+  })
+  size: 'small' | 'medium' | 'large';
 
   @Column('text', { array: true, nullable: true })
   imageUrl?: string[];

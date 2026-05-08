@@ -30,11 +30,27 @@ export class CreateOrderDto {
 
   @ApiPropertyOptional({
     example: '123 Main Street, New York, NY 10001',
-    description: 'Delivery address for the order',
+    description: 'Full delivery address for the order',
   })
   @IsOptional()
   @IsString()
   deliveryAddress?: string;
+
+  @ApiPropertyOptional({
+    example: 'Ikorodu',
+    description: 'Delivery city for zone calculation',
+  })
+  @IsOptional()
+  @IsString()
+  deliveryCity?: string;
+
+  @ApiPropertyOptional({
+    example: 'Lagos',
+    description: 'Delivery state for zone calculation',
+  })
+  @IsOptional()
+  @IsString()
+  deliveryState?: string;
 
   @ApiPropertyOptional({
     example: 'Please handle with care - fragile medical equipment',

@@ -6,7 +6,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { User} from '../../users/entities/user.entity';
+import { User } from '../../users/entities/user.entity';
 // import { User } from 'src/users/entities/user.entity';
 import { Product } from '../../products/entities/product-entity';
 import { OrderStatus, PaymentStatus } from '../enums/order.enum';
@@ -49,7 +49,37 @@ export class Order {
   paymentStatus: PaymentStatus;
 
   @Column('text', { nullable: true })
-  deliveryAddress?: string;
+  deliveryAddress?: string; // Full delivery address
+
+  @Column({ nullable: true })
+  deliveryCity?: string; // City for delivery
+
+  @Column({ nullable: true })
+  deliveryState?: string; // State for delivery
+
+  @Column('int', { nullable: true })
+  departureZone?: number;
+
+  @Column('int', { nullable: true })
+  arrivalZone?: number;
+
+  @Column('decimal', { precision: 10, scale: 2, nullable: true, default: 0 })
+  deliveryFee?: number;
+
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  platformFee?: number | null;
+
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  sellerAmount?: number | null;
+
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  estimatedPlatformFee?: number | null;
+
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  estimatedSellerAmount?: number | null;
+
+  @Column({ nullable: true })
+  estimatedDeliveryDays?: string;
 
   @Column('text', { nullable: true })
   notes?: string;
@@ -57,7 +87,7 @@ export class Order {
   @Column('text', { nullable: true })
   transactionId?: string;
 
- @Column({ nullable: true })
+  @Column({ nullable: true })
   trackingNumber: string;
 
   @Column({ type: 'timestamp', nullable: true })

@@ -118,6 +118,11 @@ export class PaymentsService {
       throw new NotFoundException('Order not found');
     }
 
+    const deliveryFee = Number(order.deliveryFee ?? 0);
+    const productAmount = Number(order.totalPrice) - deliveryFee;
+    const estimatedPlatformFee = Math.floor(productAmount * 0.12);
+    const estimatedSellerAmount = Math.floor(productAmount - estimatedPlatformFee);
+
     const reference = this.generateReference();
 
     try {
@@ -176,6 +181,11 @@ export class PaymentsService {
         status: PaymentStatus.PENDING,
         escrowStatus: EscrowStatus.HELD,
         provider: 'FLUTTERWAVE',
+        deliveryFee,
+        platformFee: null as any,
+        sellerAmount: null as any,
+        estimatedPlatformFee,
+        estimatedSellerAmount,
       });
 
       await this.paymentRepo.save(payment);
@@ -679,7 +689,6 @@ export class PaymentsService {
     }
   }
 
-
   async retryPendingTransfers() {
     try {
       // Find all payments where escrow is released but transfer hasn't happened yet
@@ -725,28 +734,53 @@ export class PaymentsService {
     message?: string;
     balance?: number;
     reference?: string;
+    breakdown?: {
+      amountPaid: number;
+      deliveryFee: number;
+      productAmount: number;
+      platformFee: number;
+      sellerAmount: number;
+    };
   }> {
     const balance = await this.getPayoutBalance();
     const seller = payment.order.product.seller;
+    const amountPaid = Number(payment.order.totalPrice);
+    const deliveryFee = Number(payment.order.deliveryFee ?? 0);
+    const productAmount = amountPaid - deliveryFee;
+    const platformFee = Math.floor(productAmount * 0.12);
+    const sellerAmount = Math.floor(productAmount - platformFee);
+    const breakdown = {
+      amountPaid,
+      deliveryFee,
+      productAmount,
+      platformFee,
+      sellerAmount,
+    };
+
+    payment.platformFee = platformFee;
+    payment.deliveryFee = deliveryFee;
+    payment.sellerAmount = sellerAmount;
+    await this.paymentRepo.save(payment);
 
     if (!seller.bankCode || !seller.accountNumber) {
       console.error(
         `Seller ${seller.id} has no bank details � transfer skipped`,
       );
-      return { status: 'SKIPPED', message: 'Seller has no bank details' };
+      return {
+        status: 'SKIPPED',
+        message: 'Seller has no bank details',
+        breakdown,
+      };
     }
 
-    const settledAmount =
-      payment.flutterwaveResponse?.amount_settled ?? payment.amount;
-    const platformFee = settledAmount * 0.12;
-    const sellerAmount = Math.floor(settledAmount - platformFee);
+    console.log('[Transfer Breakdown]', breakdown);
 
     if (balance < sellerAmount + 10) {
       // +10 for transfer fee
-      const message = `Insufficient payout balance (${balance}) � queuing transfer for later`;
+      const message = `Insufficient payout balance (${balance}) - queuing transfer for later. Required: ${sellerAmount + 10}`;
       console.log(message);
-      // Don't throw � cron job will retry
-      return { status: 'QUEUED', message, balance };
+      // Don't throw - cron job will retry
+      return { status: 'QUEUED', message, balance, breakdown };
     }
     const proxyAgent = new HttpsProxyAgent(
       this.configService.get<string>('FIXIE_URL') ?? '',
@@ -779,20 +813,28 @@ export class PaymentsService {
 
       payment.platformFee = platformFee;
       payment.sellerAmount = sellerAmount;
+      payment.order.platformFee = platformFee;
+      payment.order.sellerAmount = sellerAmount;
       payment.transferReference = transferRes.data.data.reference;
       payment.transferredAt = new Date();
+      await this.orderRepo.save(payment.order);
       await this.paymentRepo.save(payment);
 
       return {
         status: 'SENT',
         reference: transferRes.data.data.reference,
+        breakdown,
       };
     } catch (error) {
       console.error(
         'Transfer error:',
         JSON.stringify(error.response?.data, null, 2) || error.message,
       );
-      return { status: 'FAILED', message: 'Transfer request failed' };
+      return {
+        status: 'FAILED',
+        message: 'Transfer request failed',
+        breakdown,
+      };
     }
   }
   /**

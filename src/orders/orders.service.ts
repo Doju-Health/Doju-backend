@@ -13,6 +13,8 @@ import { CreateOrderDto, CreateBulkOrdersDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
 import { OrderStatus, PaymentStatus } from './enums/order.enum';
 import { randomUUID } from 'crypto';
+import { DeliveryZoneService } from 'src/common/services/delivery-zone.service';
+import { DeliveryRateCardService } from 'src/common/services/delivery-rate-card.service';
 
 @Injectable()
 export class OrdersService {
@@ -21,6 +23,8 @@ export class OrdersService {
     private orderRepo: Repository<Order>,
     @InjectRepository(Product)
     private productRepo: Repository<Product>,
+    private deliveryZoneService: DeliveryZoneService,
+    private deliveryRateCardService: DeliveryRateCardService,
   ) {}
 
   async create(dto: CreateOrderDto, buyer: User): Promise<Order> {
@@ -45,17 +49,79 @@ export class OrdersService {
       );
     }
 
-    // Calculate total price
+    // Calculate base total price
     const totalPrice = Number(product.price) * dto.quantity;
 
-    // Create order
+    // Calculate delivery fee
+    let deliveryFee = 0;
+    let departureZone: number | undefined;
+    let arrivalZone: number | undefined;
+    let estimatedDeliveryDays: string | undefined;
+    let deliveryCity: string | undefined;
+    let deliveryState: string | undefined;
+
+    try {
+      // Get seller's departure zone from business city
+      const sellerCity = product.seller.businessCity;
+      if (!sellerCity) {
+        throw new BadRequestException(
+          'Seller business city not configured for delivery calculation',
+        );
+      }
+
+      departureZone = this.deliveryZoneService.getZoneByCity(sellerCity);
+
+      // Get buyer's arrival zone (use provided deliveryCity or buyer's city)
+      const buyerDeliveryCity = dto.deliveryCity || buyer.city;
+      if (!buyerDeliveryCity) {
+        throw new BadRequestException(
+          'Delivery city required. Provide deliveryCity or update your profile city',
+        );
+      }
+
+      arrivalZone = this.deliveryZoneService.getZoneByCity(buyerDeliveryCity);
+
+      deliveryCity = buyerDeliveryCity;
+      deliveryState = dto.deliveryState || buyer.state;
+
+      // Get delivery fee based on zones and package size
+      const deliveryQuote = this.deliveryRateCardService.getDeliveryFee(
+        departureZone,
+        arrivalZone,
+        product.size as 'small' | 'medium' | 'large',
+      );
+
+      deliveryFee = deliveryQuote.fee;
+      estimatedDeliveryDays = deliveryQuote.estimatedDays;
+    } catch (error) {
+      // You can choose to fail the order creation or make delivery optional
+      // For now, we'll throw an error
+      throw new BadRequestException(
+        `Delivery calculation failed: ${error.message}`,
+      );
+    }
+
+    const estimatedPlatformFee = Math.floor(totalPrice * 0.12);
+    const estimatedSellerAmount = Math.floor(totalPrice - estimatedPlatformFee);
+
+    // Create order with delivery information
     const order = this.orderRepo.create({
       buyer,
       product,
       quantity: dto.quantity,
       unitPrice: product.price,
-      totalPrice,
-      deliveryAddress: dto.deliveryAddress,
+      totalPrice: totalPrice + deliveryFee, // Include delivery fee in total
+      deliveryAddress: dto.deliveryAddress || buyer.address,
+      deliveryCity,
+      deliveryState,
+      departureZone,
+      arrivalZone,
+      deliveryFee,
+      platformFee: null as any,
+      sellerAmount: null as any,
+      estimatedPlatformFee,
+      estimatedSellerAmount,
+      estimatedDeliveryDays,
       notes: dto.notes,
       orderStatus: OrderStatus.PENDING,
       paymentStatus: PaymentStatus.PENDING,
@@ -63,11 +129,6 @@ export class OrdersService {
 
     // Save order
     const savedOrder = await this.orderRepo.save(order);
-
-    // Reserve product stock (don't reduce until payment is confirmed)
-    // Or you can reduce immediately - your choice
-    // product.stock -= dto.quantity;
-    // await this.productRepo.save(product);
 
     return savedOrder;
   }
@@ -120,6 +181,10 @@ export class OrdersService {
 
         const lineTotal = Number(product.price) * quantity;
         totalPrice += lineTotal;
+        const estimatedPlatformFee = Math.floor(lineTotal * 0.12);
+        const estimatedSellerAmount = Math.floor(
+          lineTotal - estimatedPlatformFee,
+        );
 
         const order = manager.create(Order, {
           buyer,
@@ -129,6 +194,11 @@ export class OrdersService {
           totalPrice: lineTotal,
           bulkOrderId: orderId,
           deliveryAddress: dto.deliveryAddress,
+          deliveryFee: null as any,
+          platformFee: null as any,
+          sellerAmount: null as any,
+          estimatedPlatformFee,
+          estimatedSellerAmount,
           notes: dto.notes,
           orderStatus: OrderStatus.PENDING,
           paymentStatus: PaymentStatus.PENDING,
@@ -154,7 +224,8 @@ export class OrdersService {
     const safePage = Math.max(page, 1);
     const safeLimit = Math.min(Math.max(limit, 1), 100);
 
-    const query = this.orderRepo.createQueryBuilder('order')
+    const query = this.orderRepo
+      .createQueryBuilder('order')
       .leftJoinAndSelect('order.buyer', 'buyer')
       .leftJoinAndSelect('order.product', 'product')
       .leftJoinAndSelect('product.seller', 'seller');
@@ -308,12 +379,16 @@ export class OrdersService {
     for (const order of orders) {
       // Only seller can mark as shipped
       if (order.product.seller.id !== seller.id) {
-        throw new ForbiddenException('Only the seller can mark order as shipped');
+        throw new ForbiddenException(
+          'Only the seller can mark order as shipped',
+        );
       }
 
       // Order must be confirmed and paid
       if (order.orderStatus !== OrderStatus.CONFIRMED) {
-        throw new BadRequestException('Order must be confirmed before shipping');
+        throw new BadRequestException(
+          'Order must be confirmed before shipping',
+        );
       }
 
       if (order.paymentStatus !== PaymentStatus.PAID) {
@@ -339,7 +414,9 @@ export class OrdersService {
 
     for (const order of orders) {
       if (order.orderStatus !== OrderStatus.SHIPPED) {
-        throw new BadRequestException('Order must be shipped before marking as delivered');
+        throw new BadRequestException(
+          'Order must be shipped before marking as delivered',
+        );
       }
 
       order.orderStatus = OrderStatus.DELIVERED;
@@ -363,7 +440,9 @@ export class OrdersService {
       }
 
       if (order.orderStatus !== OrderStatus.DELIVERED) {
-        throw new BadRequestException('Order must be delivered before completion');
+        throw new BadRequestException(
+          'Order must be delivered before completion',
+        );
       }
 
       order.orderStatus = OrderStatus.COMPLETED;
@@ -383,7 +462,9 @@ export class OrdersService {
       const isSeller = order.product.seller.id === user.id;
 
       if (!isBuyer && !isSeller) {
-        throw new ForbiddenException('You do not have permission to cancel this order');
+        throw new ForbiddenException(
+          'You do not have permission to cancel this order',
+        );
       }
 
       // Can only cancel pending or confirmed orders
@@ -455,14 +536,17 @@ export class OrdersService {
     }
 
     // Auto-confirm order and reduce stock when payment is successful
-    if (paymentStatus === PaymentStatus.PAID && order.orderStatus === OrderStatus.PENDING) {
+    if (
+      paymentStatus === PaymentStatus.PAID &&
+      order.orderStatus === OrderStatus.PENDING
+    ) {
       order.orderStatus = OrderStatus.CONFIRMED;
-      
+
       // Reduce product stock now that payment is confirmed
       const product = await this.productRepo.findOne({
         where: { id: order.product.id },
       });
-      
+
       if (product) {
         product.stock -= order.quantity;
         await this.productRepo.save(product);

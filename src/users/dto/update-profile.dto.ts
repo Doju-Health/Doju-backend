@@ -27,6 +27,46 @@ export class UpdateProfileDto {
   address?: string;
 
   @ApiPropertyOptional({
+    example: '123 Main Street, Lagos, Nigeria',
+    description: 'Business address',
+  })
+  @IsOptional()
+  @IsString()
+  businessAddress?: string;
+
+  @ApiPropertyOptional({
+    example: 'Lagos',
+    description: 'City from personal address',
+  })
+  @IsOptional()
+  @IsString()
+  city?: string;
+
+  @ApiPropertyOptional({
+    example: 'Lagos State',
+    description: 'State from personal address',
+  })
+  @IsOptional()
+  @IsString()
+  state?: string;
+
+  @ApiPropertyOptional({
+    example: 'Ikeja',
+    description: 'City from business address',
+  })
+  @IsOptional()
+  @IsString()
+  businessCity?: string;
+
+  @ApiPropertyOptional({
+    example: 'Lagos State',
+    description: 'State from business address',
+  })
+  @IsOptional()
+  @IsString()
+  businessState?: string;
+
+  @ApiPropertyOptional({
     example: 'Acme Medical Supplies',
     description: 'Company name (seller)',
   })

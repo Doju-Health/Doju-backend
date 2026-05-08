@@ -62,8 +62,25 @@ export class User {
   @Column({ nullable: true })
   cacUrl?: string;
 
+  // 🔹 Buyer/Seller personal address
+  @Column('text', { nullable: true })
+  address?: string; // Full address string
+
   @Column({ nullable: true })
-  address?: string;
+  city?: string; // City from address
+
+  @Column({ nullable: true })
+  state?: string; // State from address
+
+  // 🔹 Seller business address
+  @Column('text', { nullable: true })
+  businessAddress?: string; // Full business address string
+
+  @Column({ nullable: true })
+  businessCity?: string; // City from business address
+
+  @Column({ nullable: true })
+  businessState?: string; // State from business address
 
   @Column({ nullable: true })
   profileImageUrl?: string;
@@ -82,9 +99,6 @@ export class User {
 
   @Column({ default: false })
   kycApproved?: boolean;
-
-  // @Column({ nullable: true })
-  // flutterwaveRecipientCode?: string;
 
   @Column({ default: false })
   isVerified: boolean;

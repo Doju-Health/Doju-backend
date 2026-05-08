@@ -55,7 +55,7 @@ export class ProductsService {
       description: dto.description,
       price: dto.price,
       stock: dto.stock,
-      weight: dto.weight,
+      size: dto.size,
       imageUrl,
       seller,
       category,

@@ -84,10 +84,19 @@ export class Payment {
   transferReference: string | null; // Reference for payout to seller
 
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
-  platformFee: number;
+  platformFee: number | null;
 
-@Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
-sellerAmount: number;
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  deliveryFee: number | null;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  sellerAmount: number | null;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  estimatedPlatformFee: number | null;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  estimatedSellerAmount: number | null;
 
   @Column({ type: 'timestamp', nullable: true })
   transferredAt: Date | null;
