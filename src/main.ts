@@ -2,8 +2,12 @@ import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
+import { AppDataSource } from './data-source.prod';
 
 async function bootstrap() {
+  await AppDataSource.initialize();
+  await AppDataSource.runMigrations();
+  
   const app = await NestFactory.create(AppModule);
   app.useGlobalPipes(
     new ValidationPipe({
