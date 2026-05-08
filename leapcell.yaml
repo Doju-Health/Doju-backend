@@ -10,4 +10,4 @@ services:
     env:
       - DATABASE_URL=${DATABASE_URL}
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
-    command: ["npm", "run", "start:prod"]
+    command: ["sh", "-c", "npm run migration:prod && npm run start:prod"]
