@@ -16,7 +16,7 @@ export class AddProductOrderPaymentTables1770806112880 implements MigrationInter
       DO $$
       BEGIN
           IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'orders_paymentstatus_enum') THEN
-              CREATE TYPE "orders_paymentstatus_enum" AS ENUM ('PENDING', 'COMPLETED', 'FAILED');
+              CREATE TYPE "orders_paymentstatus_enum" AS ENUM ('PENDING', 'PAID', 'FAILED', 'REFUNDED', 'PENDING_REFUND');
           END IF;
       END $$;
     `);
@@ -25,7 +25,7 @@ export class AddProductOrderPaymentTables1770806112880 implements MigrationInter
       DO $$
       BEGIN
           IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'payment_status_enum') THEN
-              CREATE TYPE "payment_status_enum" AS ENUM ('PENDING', 'COMPLETED', 'FAILED');
+              CREATE TYPE "payment_status_enum" AS ENUM ('PENDING', 'PAID', 'FAILED', 'REFUNDED', 'PENDING_REFUND');
           END IF;
       END $$;
     `);

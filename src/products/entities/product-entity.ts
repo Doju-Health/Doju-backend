@@ -28,7 +28,8 @@ export class Product {
   stock: number;
 
   @Column({
-    type: 'varchar',
+    type: 'enum',
+    enumName: 'products_size_enum',
     enum: ['small', 'medium', 'large'],
     default: 'small',
   })
