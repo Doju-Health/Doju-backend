@@ -7,7 +7,7 @@ export enum TrackingStatus {
   PROCESSING = 'PROCESSING',
   PACKED = 'PACKED',
   
-  // Shipping stages
+  // Shipping stage
   PICKED_UP = 'PICKED_UP',
   IN_TRANSIT = 'IN_TRANSIT',
   AT_SORTING_CENTER = 'AT_SORTING_CENTER',
