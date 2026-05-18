@@ -4,6 +4,9 @@ import {
   IsUUID,
   IsOptional,
   IsUrl,
+  IsNumber,
+  Min,
+  Max,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -75,6 +78,9 @@ export class ConfirmDeliveryDto {
     maximum: 5,
   })
   @IsOptional()
+  @IsNumber()
+  @Min(1)
+  @Max(5)
   rating?: number;
 }
 

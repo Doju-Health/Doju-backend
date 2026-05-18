@@ -87,6 +87,21 @@ export class OrdersController {
   @ApiCreatedResponse({
     description: 'Orders successfully created',
     type: BulkOrderResponseDto,
+    schema: {
+      example: {
+        orderId: 'bulk-123e4567-e89b-12d3-a456-426614174000',
+        totalPrice: 24999.95,
+        bulkDeliveryFee: 13500,
+        bulkEstimatedPlatformFee: 492,
+        bulkEstimatedSellerAmount: 3608,
+        orders: [
+          {
+            id: '123e4567-e89b-12d3-a456-426614174001',
+            bulkOrderId: 'bulk-123e4567-e89b-12d3-a456-426614174000',
+          },
+        ],
+      },
+    },
   })
   @ApiBadRequestResponse({
     description:
@@ -198,6 +213,21 @@ export class OrdersController {
   @ApiOkResponse({
     description: 'Successfully retrieved the bulk order',
     type: BulkOrderResponseDto,
+    schema: {
+      example: {
+        orderId: 'bulk-123e4567-e89b-12d3-a456-426614174000',
+        totalPrice: 24999.95,
+        bulkDeliveryFee: 13500,
+        bulkEstimatedPlatformFee: 492,
+        bulkEstimatedSellerAmount: 3608,
+        orders: [
+          {
+            id: '123e4567-e89b-12d3-a456-426614174001',
+            bulkOrderId: 'bulk-123e4567-e89b-12d3-a456-426614174000',
+          },
+        ],
+      },
+    },
   })
   @ApiNotFoundResponse({
     description: 'Bulk order not found',

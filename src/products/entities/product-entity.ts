@@ -50,6 +50,12 @@ export class Product {
   @Column({ default: false })
   isApproved: boolean;
 
+  @Column('decimal', { precision: 3, scale: 2, default: 0 })
+  averageRating: number;
+
+  @Column({ default: 0 })
+  ratingsCount: number;
+
   @CreateDateColumn()
   createdAt: Date;
 

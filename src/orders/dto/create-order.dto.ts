@@ -95,6 +95,22 @@ export class CreateBulkOrdersDto {
   deliveryAddress?: string;
 
   @ApiPropertyOptional({
+    example: 'Ikorodu',
+    description: 'Delivery city for zone calculation',
+  })
+  @IsOptional()
+  @IsString()
+  deliveryCity?: string;
+
+  @ApiPropertyOptional({
+    example: 'Lagos',
+    description: 'Delivery state for zone calculation',
+  })
+  @IsOptional()
+  @IsString()
+  deliveryState?: string;
+
+  @ApiPropertyOptional({
     example: 'Please deliver all items together if possible',
     description: 'Order notes applied to all orders in this request',
   })

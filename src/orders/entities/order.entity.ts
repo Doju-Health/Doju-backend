@@ -34,6 +34,15 @@ export class Order {
   @Column({ nullable: true })
   bulkOrderId?: string;
 
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  bulkDeliveryFee?: number | null;
+
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  bulkEstimatedPlatformFee?: number | null;
+
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  bulkEstimatedSellerAmount?: number | null;
+
   @Column({
     type: 'enum',
     enum: OrderStatus,

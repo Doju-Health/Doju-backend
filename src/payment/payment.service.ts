@@ -10,6 +10,7 @@ import { Payment } from './entities/payment.entity';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { Order } from 'src/orders/entities/order.entity';
+import { Product } from 'src/products/entities/product-entity';
 import { User } from 'src/users/entities/user.entity';
 import { PaymentStatus, OrderStatus } from 'src/orders/enums/order.enum';
 import { InitiatePaymentDto } from './dto/payment.dto';
@@ -29,6 +30,8 @@ export class PaymentsService {
     private paymentRepo: Repository<Payment>,
     @InjectRepository(Order)
     private orderRepo: Repository<Order>,
+    @InjectRepository(Product)
+    private productRepo: Repository<Product>,
     private configService: ConfigService,
   ) {
     this.flwSecretKey = this.configService.get<string>('FLW_SECRET_KEY') ?? '';
@@ -503,6 +506,7 @@ export class PaymentsService {
     orderId: string | undefined,
     buyer: User,
     bulkOrderId?: string,
+    rating?: number,
   ) {
     const { payment, orders } = await this.getPaymentAndOrders({
       orderId,
@@ -544,6 +548,10 @@ export class PaymentsService {
     await this.paymentRepo.save(payment);
     await this.orderRepo.save(orders);
 
+    if (rating !== undefined) {
+      await this.updateProductRatings(orders, rating);
+    }
+
     // Here you would typically transfer funds to seller's account
     // This could be done via Flutterwave Transfer API or your own logic
     const payout = await this.transferToSeller(payment);
@@ -554,6 +562,33 @@ export class PaymentsService {
       payment,
       payout,
     };
+  }
+
+  private async updateProductRatings(orders: Order[], rating: number) {
+    const uniqueProductIds = [...new Set(orders.map((order) => order.product.id))];
+
+    for (const productId of uniqueProductIds) {
+      const product = await this.productRepo.findOne({
+        where: { id: productId },
+      });
+
+      if (!product) {
+        continue;
+      }
+
+      const currentCount = Number(product.ratingsCount ?? 0);
+      const currentAverage = Number(product.averageRating ?? 0);
+      const nextCount = currentCount + 1;
+      const nextAverage =
+        currentCount === 0
+          ? rating
+          : (currentAverage * currentCount + rating) / nextCount;
+
+      product.ratingsCount = nextCount;
+      product.averageRating = Number(nextAverage.toFixed(2));
+
+      await this.productRepo.save(product);
+    }
   }
 
   async autoReleaseEscrow(days: number = 7) {

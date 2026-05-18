@@ -136,7 +136,14 @@ export class OrdersService {
   async createBulk(
     dto: CreateBulkOrdersDto,
     buyer: User,
-  ): Promise<{ orderId: string; totalPrice: number; orders: Order[] }> {
+  ): Promise<{
+    orderId: string;
+    totalPrice: number;
+    bulkDeliveryFee: number;
+    bulkEstimatedPlatformFee: number;
+    bulkEstimatedSellerAmount: number;
+    orders: Order[];
+  }> {
     if (dto.productIds.length !== dto.quantities.length) {
       throw new BadRequestException(
         'productIds and quantities must have the same length',
@@ -151,6 +158,9 @@ export class OrdersService {
       const createdOrders: Order[] = [];
       const orderId = `bulk-${randomUUID()}`;
       let totalPrice = 0;
+      let bulkDeliveryFee = 0;
+      let bulkEstimatedPlatformFee = 0;
+      let bulkEstimatedSellerAmount = 0;
 
       for (let i = 0; i < dto.productIds.length; i++) {
         const productId = dto.productIds[i];
@@ -180,21 +190,36 @@ export class OrdersService {
         }
 
         const lineTotal = Number(product.price) * quantity;
-        totalPrice += lineTotal;
+        const deliveryDetails = this.calculateDeliveryDetails(
+          product,
+          dto,
+          buyer,
+        );
+        const deliveryFee = deliveryDetails.deliveryFee * quantity;
+        const orderTotal = lineTotal + deliveryFee;
+        totalPrice += orderTotal;
+        bulkDeliveryFee += deliveryFee;
         const estimatedPlatformFee = Math.floor(lineTotal * 0.12);
         const estimatedSellerAmount = Math.floor(
           lineTotal - estimatedPlatformFee,
         );
+        bulkEstimatedPlatformFee += estimatedPlatformFee;
+        bulkEstimatedSellerAmount += estimatedSellerAmount;
 
         const order = manager.create(Order, {
           buyer,
           product,
           quantity,
           unitPrice: product.price,
-          totalPrice: lineTotal,
+          totalPrice: orderTotal,
           bulkOrderId: orderId,
-          deliveryAddress: dto.deliveryAddress,
-          deliveryFee: null as any,
+          deliveryAddress: deliveryDetails.deliveryAddress,
+          deliveryCity: deliveryDetails.deliveryCity,
+          deliveryState: deliveryDetails.deliveryState,
+          departureZone: deliveryDetails.departureZone,
+          arrivalZone: deliveryDetails.arrivalZone,
+          deliveryFee,
+          estimatedDeliveryDays: deliveryDetails.estimatedDeliveryDays,
           platformFee: null as any,
           sellerAmount: null as any,
           estimatedPlatformFee,
@@ -208,8 +233,73 @@ export class OrdersService {
         createdOrders.push(savedOrder);
       }
 
-      return { orderId, totalPrice, orders: createdOrders };
+      for (const order of createdOrders) {
+        order.bulkDeliveryFee = bulkDeliveryFee;
+        order.bulkEstimatedPlatformFee = bulkEstimatedPlatformFee;
+        order.bulkEstimatedSellerAmount = bulkEstimatedSellerAmount;
+      }
+
+      await manager.save(Order, createdOrders);
+
+      return {
+        orderId,
+        totalPrice,
+        bulkDeliveryFee,
+        bulkEstimatedPlatformFee,
+        bulkEstimatedSellerAmount,
+        orders: createdOrders,
+      };
     });
+  }
+
+  private calculateDeliveryDetails(
+    product: Product,
+    dto: {
+      deliveryAddress?: string;
+      deliveryCity?: string;
+      deliveryState?: string;
+    },
+    buyer: User,
+  ): {
+    deliveryAddress?: string;
+    deliveryCity?: string;
+    deliveryState?: string;
+    departureZone: number;
+    arrivalZone: number;
+    deliveryFee: number;
+    estimatedDeliveryDays: string;
+  } {
+    const sellerCity = product.seller.businessCity;
+    if (!sellerCity) {
+      throw new BadRequestException(
+        'Seller business city not configured for delivery calculation',
+      );
+    }
+
+    const departureZone = this.deliveryZoneService.getZoneByCity(sellerCity);
+    const deliveryCity = dto.deliveryCity || buyer.city;
+    if (!deliveryCity) {
+      throw new BadRequestException(
+        'Delivery city required. Provide deliveryCity or update your profile city',
+      );
+    }
+
+    const arrivalZone = this.deliveryZoneService.getZoneByCity(deliveryCity);
+    const deliveryQuote = this.deliveryRateCardService.getDeliveryFee(
+      departureZone,
+      arrivalZone,
+      product.size as 'small' | 'medium' | 'large',
+    );
+
+    return {
+      deliveryAddress: dto.deliveryAddress || buyer.address,
+      deliveryCity,
+      deliveryState: dto.deliveryState || buyer.state,
+      departureZone,
+      arrivalZone,
+      deliveryFee: deliveryQuote.fee,
+      estimatedDeliveryDays: deliveryQuote.estimatedDays,
+    };
   }
 
   async findAll({
@@ -334,6 +424,9 @@ export class OrdersService {
   async findByBulkOrderId(bulkOrderId: string): Promise<{
     orderId: string;
     totalPrice: number;
+    bulkDeliveryFee: number;
+    bulkEstimatedPlatformFee: number;
+    bulkEstimatedSellerAmount: number;
     orders: Order[];
   }> {
     const orders = await this.orderRepo.find({
@@ -351,7 +444,30 @@ export class OrdersService {
       0,
     );
 
-    return { orderId: bulkOrderId, totalPrice, orders };
+    const bulkDeliveryFee =
+      Number(orders[0]?.bulkDeliveryFee ?? 0) ||
+      orders.reduce((sum, order) => sum + Number(order.deliveryFee ?? 0), 0);
+    const bulkEstimatedPlatformFee =
+      Number(orders[0]?.bulkEstimatedPlatformFee ?? 0) ||
+      orders.reduce(
+        (sum, order) => sum + Number(order.estimatedPlatformFee ?? 0),
+        0,
+      );
+    const bulkEstimatedSellerAmount =
+      Number(orders[0]?.bulkEstimatedSellerAmount ?? 0) ||
+      orders.reduce(
+        (sum, order) => sum + Number(order.estimatedSellerAmount ?? 0),
+        0,
+      );
+
+    return {
+      orderId: bulkOrderId,
+      totalPrice,
+      bulkDeliveryFee,
+      bulkEstimatedPlatformFee,
+      bulkEstimatedSellerAmount,
+      orders,
+    };
   }
 
   // async update(id: string, dto: UpdateOrderDto, user: User): Promise<Order> {

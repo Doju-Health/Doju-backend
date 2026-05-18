@@ -15,6 +15,24 @@ export class BulkOrderResponseDto {
   totalPrice: number;
 
   @ApiProperty({
+    example: 3500,
+    description: 'Combined delivery fee for all items in the bulk request',
+  })
+  bulkDeliveryFee: number;
+
+  @ApiProperty({
+    example: 300,
+    description: 'Combined estimated platform fee for the bulk request',
+  })
+  bulkEstimatedPlatformFee: number;
+
+  @ApiProperty({
+    example: 2200,
+    description: 'Combined estimated seller amount for the bulk request',
+  })
+  bulkEstimatedSellerAmount: number;
+
+  @ApiProperty({
     type: [OrderResponseDto],
     description: 'Orders created in this bulk request',
   })

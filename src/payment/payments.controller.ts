@@ -454,6 +454,7 @@ async verify(@Query('transaction_id') transactionId: string) {
       dto.orderId,
       req.user,
       dto.bulkOrderId,
+      dto.rating,
     );
   }
 

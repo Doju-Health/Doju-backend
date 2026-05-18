@@ -101,6 +101,18 @@ export class ProductResponseDto {
   isApproved: boolean;
 
   @ApiProperty({
+    example: 4.8,
+    description: 'Average rating for the product',
+  })
+  averageRating: number;
+
+  @ApiProperty({
+    example: 12,
+    description: 'Total number of ratings received',
+  })
+  ratingsCount: number;
+
+  @ApiProperty({
     example: '2025-02-09T10:30:00Z',
     description: 'Product creation timestamp',
   })

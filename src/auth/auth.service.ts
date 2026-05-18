@@ -93,7 +93,11 @@ export class AuthService {
     const { email, password } = loginDto;
 
     // Find user by email
-    const user = await this.userRepo.findOne({ where: { email } });
+    const user = await this.userRepo
+      .createQueryBuilder('user')
+      .addSelect('user.password')
+      .where('user.email = :email', { email })
+      .getOne();
     if (!user) {
       throw new NotFoundException('User not found');
     }
