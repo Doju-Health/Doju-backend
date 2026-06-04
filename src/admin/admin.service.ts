@@ -12,6 +12,11 @@ import { Order } from 'src/orders/entities/order.entity';
 import { ProductCategory } from 'src/products/entities/product-category.entity';
 import { Payment } from 'src/payment/entities/payment.entity';
 import { OrderStatus, PaymentStatus } from 'src/orders/enums/order.enum';
+import { CreateAdminAccountDto } from './dto/create-admin-account.dto';
+import { InviteAdminDto } from './dto/invite-admin.dto';
+import { CompleteAdminRegistrationDto } from './dto/complete-admin-registration.dto';
+import * as bcrypt from 'bcrypt';
+import { EmailService } from 'src/email/email.service';
 
 @Injectable()
 export class AdminService {
@@ -26,7 +31,152 @@ export class AdminService {
     private categoryRepo: Repository<ProductCategory>,
     @InjectRepository(Payment)
     private paymentRepo: Repository<Payment>,
+    private emailService: EmailService,
   ) {}
+
+  async createAdminAccount(dto: CreateAdminAccountDto) {
+    const completedAdminCount = await this.userRepo
+      .createQueryBuilder('user')
+      .where('user.role = :role', { role: UserRole.ADMIN })
+      .andWhere('user.password IS NOT NULL')
+      .andWhere('user.emailVerified = true')
+      .getCount();
+
+    if (completedAdminCount >= 2) {
+      throw new BadRequestException(
+        'Only two direct admin accounts can be created',
+      );
+    }
+
+    const existingUser = await this.userRepo.findOne({
+      where: { email: dto.email },
+    });
+
+    if (existingUser) {
+      throw new BadRequestException('Email already registered');
+    }
+
+    const hashedPassword = await bcrypt.hash(dto.password, 10);
+
+    const admin = this.userRepo.create({
+      fullName: dto.fullName,
+      email: dto.email,
+      password: hashedPassword,
+      phoneNumber: dto.phoneNumber,
+      role: UserRole.ADMIN,
+      emailVerified: true,
+      isActive: true,
+      isVerified: true,
+    });
+
+    const savedAdmin = await this.userRepo.save(admin);
+    const { password, ...safeAdmin } = savedAdmin;
+
+    return {
+      message: 'Admin account created successfully',
+      user: safeAdmin,
+    };
+  }
+
+  async inviteAdmin(dto: InviteAdminDto) {
+    const existingUser = await this.userRepo
+      .createQueryBuilder('user')
+      .addSelect('user.password')
+      .where('user.email = :email', { email: dto.email })
+      .getOne();
+
+    if (existingUser && existingUser.role !== UserRole.ADMIN) {
+      throw new BadRequestException(
+        'This email is already registered as a non-admin user',
+      );
+    }
+
+    if (existingUser?.password && existingUser.emailVerified) {
+      throw new BadRequestException('Admin account is already registered');
+    }
+
+    const admin =
+      existingUser ||
+      this.userRepo.create({
+        fullName: dto.fullName,
+        email: dto.email,
+        role: UserRole.ADMIN,
+        emailVerified: false,
+        isActive: true,
+        isVerified: true,
+      });
+
+    if (existingUser) {
+      existingUser.emailVerified = false;
+      existingUser.isActive = true;
+    }
+
+    await this.userRepo.save(admin);
+
+    const completeUrl = this.buildAdminCompleteRegistrationUrl(dto.email);
+
+    await this.emailService.sendEmail(
+      dto.email,
+      'You have been invited as a DOJU admin',
+      `
+        <p>Hello, ${dto.fullName}</p>
+        <p>You have been invited to join DOJU as an admin.</p>
+        <p>Complete your registration here: <a href="${completeUrl}">${completeUrl}</a></p>
+      `,
+    );
+
+    return {
+      message: 'Admin invitation sent successfully',
+      email: dto.email,
+      completeUrl,
+    };
+  }
+
+  async completeAdminRegistration(dto: CompleteAdminRegistrationDto) {
+    const admin = await this.userRepo
+      .createQueryBuilder('user')
+      .addSelect('user.password')
+      .where('user.email = :email', { email: dto.email })
+      .getOne();
+
+    if (!admin || admin.role !== UserRole.ADMIN) {
+      throw new NotFoundException('Invited admin not found');
+    }
+
+    if (admin.password && admin.emailVerified) {
+      throw new BadRequestException('Admin registration is already complete');
+    }
+
+    admin.password = await bcrypt.hash(dto.password, 10);
+    admin.emailVerified = true;
+    admin.isActive = true;
+    admin.isVerified = true;
+
+    await this.userRepo.save(admin);
+
+    await this.emailService.sendEmail(
+      dto.email,
+      'Your DOJU admin registration is complete',
+      `
+        <p>Hello,</p>
+        <p>Your DOJU admin registration is complete.</p>
+        <p>You can now log in with your email and password.</p>
+      `,
+    );
+
+    return {
+      message: 'Admin registration completed successfully',
+      email: admin.email,
+    };
+  }
+
+  private buildAdminCompleteRegistrationUrl(email: string): string {
+    const baseUrl =
+      process.env.ADMIN_COMPLETE_REGISTRATION_URL ||
+      'https://www.oju/admin/complete';
+
+    return `${baseUrl.replace(/\/$/, '')}/${encodeURIComponent(email)}`;
+  }
 
   async getUsers({
     page = 1,

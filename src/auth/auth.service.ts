@@ -14,6 +14,7 @@ import { User } from '../users/entities/user.entity';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { EmailService } from '../email/email.service';
+import { UserRole } from 'src/users/enums/user.enum';
 
 
 @Injectable()
@@ -43,6 +44,12 @@ export class AuthService {
    */
   async register(registerDto: RegisterDto) {
     const { email, password, fullName, role, phoneNumber } = registerDto;
+
+    if (role === UserRole.ADMIN) {
+      throw new BadRequestException(
+        'Admin accounts must be created from the admin endpoint',
+      );
+    }
 
     // Check if user already exists
     const existingUser = await this.userRepo.findOne({ where: { email } });

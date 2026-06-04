@@ -113,6 +113,7 @@ export class OrdersService {
       totalPrice: totalPrice + deliveryFee, // Include delivery fee in total
       deliveryAddress: dto.deliveryAddress || buyer.address,
       deliveryCity,
+      pickupStore: dto.pickupStore,
       deliveryState,
       departureZone,
       arrivalZone,
@@ -215,6 +216,7 @@ export class OrdersService {
           bulkOrderId: orderId,
           deliveryAddress: deliveryDetails.deliveryAddress,
           deliveryCity: deliveryDetails.deliveryCity,
+          pickupStore: dto.pickupStore,
           deliveryState: deliveryDetails.deliveryState,
           departureZone: deliveryDetails.departureZone,
           arrivalZone: deliveryDetails.arrivalZone,

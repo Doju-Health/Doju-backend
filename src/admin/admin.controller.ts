@@ -3,10 +3,12 @@ import {
   Controller,
   DefaultValuePipe,
   Delete,
+  Body,
   Get,
   Param,
   ParseBoolPipe,
   ParseIntPipe,
+  Post,
   Patch,
   Query,
   UseGuards,
@@ -14,6 +16,8 @@ import {
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiBody,
+  ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
@@ -22,6 +26,7 @@ import {
   ApiQuery,
   ApiTags,
   ApiUnauthorizedResponse,
+  ApiExcludeEndpoint
 } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth-guard';
@@ -31,16 +36,91 @@ import { UserRole } from 'src/users/enums/user.enum';
 import { PaginatedUsersResponseDto } from './dto/paginated-users-response.dto';
 import { AdminUserResponseDto } from './dto/admin-user-response.dto';
 import { OrderStatus, PaymentStatus } from 'src/orders/enums/order.enum';
+import { CreateAdminAccountDto } from './dto/create-admin-account.dto';
+import { InviteAdminDto } from './dto/invite-admin.dto';
+import { CompleteAdminRegistrationDto } from './dto/complete-admin-registration.dto';
 
 @ApiTags('Admin')
 @ApiBearerAuth()
-@UseGuards(JwtAuthGuard, RolesGuard)
-@Roles(UserRole.ADMIN)
 @Controller('admin')
 export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
+  @Post('accounts')
+  @ApiOperation({ summary: 'Create an admin account' })
+  @ApiBody({ type: CreateAdminAccountDto })
+  @ApiCreatedResponse({
+    description: 'Admin account created successfully',
+    schema: {
+      example: {
+        message: 'Admin account created successfully',
+        user: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          fullName: 'Ada Admin',
+          email: 'ada.admin@dojuhealth.com',
+          role: 'admin',
+          emailVerified: true,
+          isActive: true,
+        },
+      },
+    },
+  })
+  @ApiBadRequestResponse({ description: 'Email already registered' })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT token' })
+  @ApiForbiddenResponse({ description: 'User does not have admin role' })
+  createAdminAccount(@Body() dto: CreateAdminAccountDto) {
+    return this.adminService.createAdminAccount(dto);
+  }
+
+  @Post('invite')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Invite an admin by email' })
+  @ApiBody({ type: InviteAdminDto })
+  @ApiCreatedResponse({
+    description: 'Admin invitation sent successfully',
+    schema: {
+      example: {
+        message: 'Admin invitation sent successfully',
+        email: 'new.admin@dojuhealth.com',
+        completeUrl:
+          'https://www.oju/admin/complete/new.admin%40dojuhealth.com',
+      },
+    },
+  })
+  @ApiBadRequestResponse({ description: 'Email cannot be invited' })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT token' })
+  @ApiForbiddenResponse({ description: 'User does not have admin role' })
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  inviteAdmin(@Body() dto: InviteAdminDto) {
+    return this.adminService.inviteAdmin(dto);
+  }
+
+  @Post('complete-registration')
+  @ApiOperation({ summary: 'Complete admin registration after invitation' })
+  @ApiBody({ type: CompleteAdminRegistrationDto })
+  @ApiOkResponse({
+    description: 'Admin registration completed successfully',
+    schema: {
+      example: {
+        message: 'Admin registration completed successfully',
+        email: 'new.admin@dojuhealth.com',
+      },
+    },
+  })
+  @ApiBadRequestResponse({ description: 'Invalid registration data' })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT token' })
+  @ApiForbiddenResponse({ description: 'User does not have admin role' })
+  completeAdminRegistration(@Body() dto: CompleteAdminRegistrationDto) {
+    return this.adminService.completeAdminRegistration(dto);
+  }
+
+
+
   @Get('users')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @ApiOperation({
     summary: 'Get all users (paginated)',
     description:
@@ -106,6 +186,8 @@ export class AdminController {
   }
 
   @Get('users/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Get user by ID' })
   @ApiParam({
     name: 'id',
@@ -121,6 +203,8 @@ export class AdminController {
   }
 
   @Delete('users/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Delete user (soft or hard)' })
   @ApiParam({
     name: 'id',
@@ -145,6 +229,8 @@ export class AdminController {
   }
 
   @Patch('users/:id/deactivate')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Deactivate user account' })
   @ApiParam({
     name: 'id',
@@ -160,6 +246,8 @@ export class AdminController {
   }
 
   @Delete('products/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Remove product (soft or hard)' })
   @ApiParam({
     name: 'id',
@@ -184,6 +272,8 @@ export class AdminController {
   }
 
   @Patch('sellers/:id/verify')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Verify seller (admin only)' })
   @ApiParam({
     name: 'id',
@@ -200,6 +290,8 @@ export class AdminController {
   }
 
   @Patch('sellers/:id/kyc-approve')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+ @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Approve seller KYC (admin only)' })
   @ApiParam({
     name: 'id',
@@ -216,6 +308,8 @@ export class AdminController {
   }
 
   @Patch('products/:id/approve')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Approve product (admin only)' })
   @ApiParam({
     name: 'id',
@@ -231,6 +325,8 @@ export class AdminController {
   }
 
   @Get('sellers/:id/products')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Get products for a seller (admin only)' })
   @ApiParam({
     name: 'id',
@@ -291,6 +387,8 @@ export class AdminController {
   }
 
   @Get('buyers/:id/orders')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Get orders for a buyer (admin only)' })
   @ApiParam({
     name: 'id',
@@ -355,6 +453,8 @@ export class AdminController {
   }
 
   @Get('dashboard/stats')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Get admin dashboard statistics' })
   @ApiOkResponse({ description: 'Dashboard statistics retrieved successfully' })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT token' })
@@ -364,6 +464,8 @@ export class AdminController {
   }
 
   @Get('revenue')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Get total revenue' })
   @ApiQuery({
     name: 'sellerId',

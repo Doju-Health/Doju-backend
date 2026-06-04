@@ -66,6 +66,9 @@ export class Order {
   @Column({ nullable: true })
   deliveryState?: string; // State for delivery
 
+  @Column({ nullable: true })
+  pickupStore?: string; // Store for pickup
+
   @Column('int', { nullable: true })
   departureZone?: number;
 

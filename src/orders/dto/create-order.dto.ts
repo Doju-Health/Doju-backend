@@ -45,6 +45,14 @@ export class CreateOrderDto {
   deliveryCity?: string;
 
   @ApiPropertyOptional({
+    example: 'Ikorodu',
+    description: 'Pickup store for the order',
+  })
+  @IsOptional()
+  @IsString()
+  pickupStore?: string;
+
+  @ApiPropertyOptional({
     example: 'Lagos',
     description: 'Delivery state for zone calculation',
   })
@@ -101,6 +109,14 @@ export class CreateBulkOrdersDto {
   @IsOptional()
   @IsString()
   deliveryCity?: string;
+
+  @ApiPropertyOptional({
+    example: 'Ikorodu',
+    description: 'Pickup store for the order',
+  })
+  @IsOptional()
+  @IsString()
+  pickupStore?: string;
 
   @ApiPropertyOptional({
     example: 'Lagos',
