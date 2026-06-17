@@ -30,6 +30,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../../users/entities/user.entity';
 import { ConfigService } from '@nestjs/config';
+import { VerificationStatus } from 'src/users/enums/user.enum';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
@@ -68,6 +69,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       phoneNumber: user.phoneNumber,
       businessCity: user.businessCity,
       businessState: user.businessState,
+      isVerified: user.isVerified ?? VerificationStatus.UNVERIFIED,
     };
   }
 }

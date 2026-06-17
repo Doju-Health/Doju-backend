@@ -3,3 +3,9 @@ export enum UserRole {
     SELLER = 'seller',
     ADMIN = 'admin'
 }
+
+export enum VerificationStatus {
+    UNVERIFIED = 'unverified',
+    PENDING = 'pending',
+    VERIFIED = 'verified'
+}

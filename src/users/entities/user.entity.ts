@@ -5,7 +5,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { UserRole } from '../enums/user.enum';
+import { UserRole, VerificationStatus } from '../enums/user.enum';
 
 @Entity({ name: 'users' })
 export class User {
@@ -51,6 +51,9 @@ export class User {
 
   @Column({ nullable: true })
   passwordResetOtpExpires?: Date;
+
+  @Column({ nullable: true, select: false })
+  refreshTokenHash?: string;
 
   // 🔹 Seller-specific (can be null for buyers)
   @Column({ nullable: true })
@@ -100,8 +103,13 @@ export class User {
   @Column({ default: false })
   kycApproved?: boolean;
 
-  @Column({ default: false })
-  isVerified: boolean;
+  @Column({
+    type: 'enum',
+    enum: VerificationStatus,
+    enumName: 'user_verification_status',
+    default: VerificationStatus.UNVERIFIED,
+  })
+  isVerified: VerificationStatus;
 
   @Column({ default: true })
   isActive: boolean;

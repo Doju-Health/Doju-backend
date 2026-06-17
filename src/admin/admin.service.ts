@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import {
   Injectable,
   NotFoundException,
@@ -17,6 +18,7 @@ import { InviteAdminDto } from './dto/invite-admin.dto';
 import { CompleteAdminRegistrationDto } from './dto/complete-admin-registration.dto';
 import * as bcrypt from 'bcrypt';
 import { EmailService } from 'src/email/email.service';
+import { VerificationStatus } from 'src/users/enums/user.enum';
 
 @Injectable()
 export class AdminService {
@@ -66,7 +68,7 @@ export class AdminService {
       role: UserRole.ADMIN,
       emailVerified: true,
       isActive: true,
-      isVerified: true,
+      isVerified: VerificationStatus.VERIFIED,
     });
 
     const savedAdmin = await this.userRepo.save(admin);
@@ -103,7 +105,7 @@ export class AdminService {
         role: UserRole.ADMIN,
         emailVerified: false,
         isActive: true,
-        isVerified: true,
+        isVerified: VerificationStatus.VERIFIED,
       });
 
     if (existingUser) {
@@ -150,7 +152,7 @@ export class AdminService {
     admin.password = await bcrypt.hash(dto.password, 10);
     admin.emailVerified = true;
     admin.isActive = true;
-    admin.isVerified = true;
+    admin.isVerified = VerificationStatus.VERIFIED;
 
     await this.userRepo.save(admin);
 
@@ -172,8 +174,7 @@ export class AdminService {
 
   private buildAdminCompleteRegistrationUrl(email: string): string {
     const baseUrl =
-      process.env.ADMIN_COMPLETE_REGISTRATION_URL ||
-      'https://www.oju/admin/complete';
+    process.env.ADMIN_COMPLETE_REGISTRATION_URL ?? '';
 
     return `${baseUrl.replace(/\/$/, '')}/${encodeURIComponent(email)}`;
   }
@@ -383,11 +384,11 @@ export class AdminService {
       throw new BadRequestException('User is not a seller');
     }
 
-    if (user.isVerified) {
+    if (user.isVerified === VerificationStatus.VERIFIED) {
       return { message: 'Seller already verified' };
     }
 
-    user.isVerified = true;
+    user.isVerified = VerificationStatus.VERIFIED;
     await this.userRepo.save(user);
 
     return { message: 'Seller verified successfully' };
@@ -442,7 +443,7 @@ export class AdminService {
     sellerId: string;
     page?: number;
     limit?: number;
-    isVerified?: boolean;
+    isVerified?: VerificationStatus | boolean | string;
     categoryId?: string;
     isApproved?: boolean;
   }) {
@@ -474,7 +475,18 @@ export class AdminService {
     }
 
     if (isVerified !== undefined) {
-      qb.andWhere('seller.isVerified = :isVerified', { isVerified });
+      const verificationStatus =
+        isVerified === true
+          ? VerificationStatus.VERIFIED
+          : isVerified === false
+            ? VerificationStatus.UNVERIFIED
+            : isVerified === 'verified' || isVerified === 'pending' || isVerified === 'unverified'
+              ? isVerified
+              : VerificationStatus.UNVERIFIED;
+
+      qb.andWhere('seller.isVerified = :isVerified', {
+        isVerified: verificationStatus,
+      });
     }
 
     const [data, total] = await qb

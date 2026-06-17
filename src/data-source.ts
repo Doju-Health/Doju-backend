@@ -14,7 +14,7 @@ export const AppDataSource = new DataSource({
   type: 'postgres',
   url: process.env.DATABASE_URL,
   entities: [User, Product, ProductCategory, Order, Payment, CartItem, OrderTracking, WaitlistEntry],
-  migrations: ['dist/migrations/*.js'],
+  migrations: ['src/migrations/*.ts'],
   synchronize: false,
   schema: 'public',
 });

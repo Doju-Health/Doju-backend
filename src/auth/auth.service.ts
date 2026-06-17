@@ -5,6 +5,7 @@ import {
   NotFoundException,
   Logger
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
@@ -14,7 +15,7 @@ import { User } from '../users/entities/user.entity';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { EmailService } from '../email/email.service';
-import { UserRole } from 'src/users/enums/user.enum';
+import { UserRole, VerificationStatus } from 'src/users/enums/user.enum';
 
 
 @Injectable()
@@ -27,6 +28,7 @@ export class AuthService {
     private userRepo: Repository<User>,
     private jwtService: JwtService,
     private emailService: EmailService,
+    private configService: ConfigService,
 
     // @InjectRepository(PasswordResetOtp),
     // private passwordResetOtpRepo: Repository<PasswordResetOtp>,
@@ -130,7 +132,7 @@ export class AuthService {
       throw new UnauthorizedException('Please verify your email first');
     }
 
-    return this.generateToken(user);
+    return this.issueTokenPair(user);
   }
 
   /**
@@ -329,7 +331,65 @@ export class AuthService {
       await this.userRepo.save(user);
     }
 
-    return this.generateToken(user);
+    return this.issueTokenPair(user);
+  }
+
+  /**
+   * Refresh access token using a valid refresh token
+   */
+  async refreshToken(refreshToken: string) {
+    if (!refreshToken) {
+      throw new BadRequestException('Refresh token is required');
+    }
+
+    let payload: { sub: string; email: string; role: UserRole };
+
+    try {
+      payload = await this.jwtService.verifyAsync(refreshToken, {
+        secret: this.getRefreshTokenSecret(),
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    const user = await this.userRepo
+      .createQueryBuilder('user')
+      .addSelect('user.refreshTokenHash')
+      .where('user.id = :id', { id: payload.sub })
+      .getOne();
+
+    if (!user || !user.refreshTokenHash) {
+      throw new UnauthorizedException('Refresh token not recognized');
+    }
+
+    const tokenMatches = await bcrypt.compare(
+      refreshToken,
+      user.refreshTokenHash,
+    );
+
+    if (!tokenMatches) {
+      throw new UnauthorizedException('Refresh token not recognized');
+    }
+
+    return this.issueTokenPair(user);
+  }
+
+  /**
+   * Logout by clearing the stored refresh token hash
+   */
+  async logout(userId: string) {
+    const result = await this.userRepo
+      .createQueryBuilder()
+      .update(User)
+      .set({ refreshTokenHash: () => 'NULL' } as any)
+      .where('id = :id', { id: userId })
+      .execute();
+
+    if (!result.affected) {
+      throw new NotFoundException('User not found');
+    }
+
+    return { message: 'Logged out successfully' };
   }
 
   /**
@@ -381,17 +441,31 @@ export class AuthService {
   }
 
   /**
-   * Generate JWT token and return user data
+   * Generate access and refresh JWT tokens and return user data
    */
-  private generateToken(user: User) {
+  private async issueTokenPair(user: User) {
     const payload = {
       sub: user.id,
       email: user.email,
       role: user.role,
     };
 
+    const accessToken = this.jwtService.sign(payload, {
+      secret: this.getAccessTokenSecret(),
+      expiresIn: this.getAccessTokenExpiry() as any,
+    });
+
+    const refreshToken = this.jwtService.sign(payload, {
+      secret: this.getRefreshTokenSecret(),
+      expiresIn: this.getRefreshTokenExpiry() as any,
+    });
+
+    user.refreshTokenHash = await bcrypt.hash(refreshToken, 10);
+    await this.userRepo.save(user);
+
     return {
-      accessToken: this.jwtService.sign(payload),
+      accessToken,
+      refreshToken,
       user: {
         id: user.id,
         email: user.email,
@@ -400,7 +474,30 @@ export class AuthService {
         phoneNumber: user.phoneNumber || null,
         companyName: user.companyName || null,
         emailVerified: user.emailVerified,
+        isVerified: user.isVerified ?? VerificationStatus.UNVERIFIED,
       },
     };
+  }
+
+  private getAccessTokenSecret(): string | undefined {
+    return this.configService.get<string>('JWT_SECRET');
+  }
+
+  private getRefreshTokenSecret(): string {
+    return (
+      this.configService.get<string>('JWT_REFRESH_SECRET') ??
+      this.configService.get<string>('JWT_SECRET') ??
+      'doju-refresh-secret'
+    );
+  }
+
+  private getAccessTokenExpiry(): string {
+    return this.configService.get<string>('JWT_ACCESS_TOKEN_EXPIRES_IN') ?? '1d';
+  }
+
+  private getRefreshTokenExpiry(): string {
+    return (
+      this.configService.get<string>('JWT_REFRESH_TOKEN_EXPIRES_IN') ?? '7d'
+    );
   }
 }

@@ -13,6 +13,7 @@ import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { User } from 'src/users/entities/user.entity';
 import { CloudinaryService } from 'src/common/services/cloudinary.service';
+import { VerificationStatus } from 'src/users/enums/user.enum';
 
 @Injectable()
 export class ProductsService {
@@ -29,7 +30,7 @@ export class ProductsService {
     seller: User,
     files?: Express.Multer.File[],
   ) {
-    if (seller.isVerified === false) {
+    if (seller.isVerified !== VerificationStatus.VERIFIED) {
       throw new ForbiddenException('Seller account is not verified');
     }
 

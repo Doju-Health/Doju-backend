@@ -6,6 +6,7 @@ import { UpdateProfileDto } from './dto/update-profile.dto';
 import { AddBankInfoDto } from './dto/add-bank-info.dto';
 import { CloudinaryService } from 'src/common/services/cloudinary.service';
 import type { Express } from 'express';
+import { UserRole, VerificationStatus } from './enums/user.enum';
 
 @Injectable()
 export class UsersService {
@@ -40,6 +41,10 @@ export class UsersService {
       profileImageUrl,
     });
 
+    if (user.role === UserRole.SELLER) {
+      user.isVerified = this.getSellerVerificationStatus(user);
+    }
+
     return this.userRepo.save(user);
   }
 
@@ -55,5 +60,22 @@ export class UsersService {
     user.accountName = dto.accountName;
 
     return this.userRepo.save(user);
+  }
+
+  private getSellerVerificationStatus(user: User): VerificationStatus {
+    if (user.role !== UserRole.SELLER) {
+      return user.isVerified;
+    }
+
+    const hasRequiredSellerFields = Boolean(
+      user.companyName &&
+        user.ninUrl &&
+        user.address &&
+        user.city,
+    );
+
+    return hasRequiredSellerFields
+      ? VerificationStatus.PENDING
+      : VerificationStatus.UNVERIFIED;
   }
 }

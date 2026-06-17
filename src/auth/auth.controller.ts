@@ -12,6 +12,7 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResendVerificationEmailDto } from './dto/verify-email.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { JwtAuthGuard } from './guards/jwt-auth-guard';
 import {
   ApiTags,
@@ -99,6 +100,7 @@ export class AuthController {
     schema: {
       example: {
         accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        refreshToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
         user: {
           id: '123e4567-e89b-12d3-a456-426614174000',
           email: 'john@example.com',
@@ -116,6 +118,44 @@ export class AuthController {
   })
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
+  }
+
+  @Post('refresh')
+  @ApiOperation({ summary: 'Refresh access token using refresh token' })
+  @ApiBody({
+    type: RefreshTokenDto,
+    examples: {
+      example1: {
+        summary: 'Refresh token request',
+        value: {
+          refreshToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        },
+      },
+    },
+  })
+  @ApiOkResponse({
+    description: 'Token refreshed successfully',
+    schema: {
+      example: {
+        accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        refreshToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        user: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          email: 'john@example.com',
+          role: 'buyer',
+          fullName: 'John Doe',
+          phoneNumber: '+1234567890',
+          companyName: null,
+          emailVerified: true,
+          isVerified: 'unverified',
+        },
+      },
+    },
+  })
+  @ApiBadRequestResponse({ description: 'Refresh token is required' })
+  @ApiUnauthorizedResponse({ description: 'Invalid or expired refresh token' })
+  async refresh(@Body() dto: RefreshTokenDto) {
+    return this.authService.refreshToken(dto.refreshToken);
   }
 
   @Post('verify-email')
@@ -198,6 +238,7 @@ export class AuthController {
       example: {
         message: 'Google login successful',
         accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        refreshToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
         user: {
           id: '123e4567-e89b-12d3-a456-426614174000',
           email: 'user@gmail.com',
@@ -213,6 +254,7 @@ export class AuthController {
     return {
       message: 'Google login successful',
       accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
       user: result.user,
     };
   }
@@ -244,6 +286,23 @@ export class AuthController {
   async getProfile(@Req() req: any) {
     const user = await this.authService.getUserProfile(req.user.id);
     return { user };
+  }
+
+  @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Logout current user and invalidate refresh token' })
+  @ApiOkResponse({
+    description: 'Logged out successfully',
+    schema: {
+      example: {
+        message: 'Logged out successfully',
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT token' })
+  async logout(@Req() req: any) {
+    return this.authService.logout(req.user.id);
   }
 
   @Post('forgot-password')

@@ -6,6 +6,7 @@ import * as path from 'path';
 @Injectable()
 export class EmailService {
   private resend: Resend;
+  private readonly defaultFrom = 'DOJU <noreply@dojuhealth.com>';
 
   constructor() {
     // Initialize Resend client
@@ -33,7 +34,7 @@ export class EmailService {
     });
 
     await this.resend.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || 'noreply@dojuhealth.com',
+      from: this.getFromAddress(),
       to: email,
       subject: 'Verify Your Email - DOJU',
       html,
@@ -56,7 +57,7 @@ export class EmailService {
     });
 
     await this.resend.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || 'noreply@dojuhealth.com',
+      from: this.getFromAddress(),
       to: email,
       subject: 'Reset Your Password - DOJU',
       html,
@@ -68,7 +69,7 @@ export class EmailService {
    */
   async sendEmail(to: string, subject: string, html: string): Promise<void> {
     await this.resend.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || 'noreply@dojuhealth.com',
+      from: this.getFromAddress(),
       to,
       subject,
       html,
@@ -90,7 +91,7 @@ export class EmailService {
     });
 
     await this.resend.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || 'noreply@dojuhealth.com',
+      from: this.getFromAddress(),
       to: email,
       subject: 'Welcome to DOJU',
       html,
@@ -106,10 +107,14 @@ export class EmailService {
     });
 
     await this.resend.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || 'noreply@dojuhealth.com',
+      from: this.getFromAddress(),
       to: email,
       subject: "You're on the DOJU waitlist",
       html,
     });
+  }
+
+  private getFromAddress(): string {
+    return process.env.RESEND_FROM_EMAIL || this.defaultFrom;
   }
 }

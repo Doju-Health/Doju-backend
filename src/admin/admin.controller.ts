@@ -18,6 +18,7 @@ import {
   ApiBearerAuth,
   ApiBody,
   ApiCreatedResponse,
+  ApiExcludeEndpoint,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
@@ -26,7 +27,6 @@ import {
   ApiQuery,
   ApiTags,
   ApiUnauthorizedResponse,
-  ApiExcludeEndpoint
 } from '@nestjs/swagger';
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth-guard';
@@ -47,6 +47,7 @@ export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
   @Post('accounts')
+  @ApiExcludeEndpoint()
   @ApiOperation({ summary: 'Create an admin account' })
   @ApiBody({ type: CreateAdminAccountDto })
   @ApiCreatedResponse({
@@ -73,6 +74,7 @@ export class AdminController {
   }
 
   @Post('invite')
+   @ApiExcludeEndpoint()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Invite an admin by email' })
@@ -82,9 +84,9 @@ export class AdminController {
     schema: {
       example: {
         message: 'Admin invitation sent successfully',
-        email: 'new.admin@dojuhealth.com',
+        email: 'new.admin@website.com',
         completeUrl:
-          'https://www.oju/admin/complete/new.admin%40dojuhealth.com',
+          'https://www.website/complete/new.admin',
       },
     },
   })
@@ -98,6 +100,7 @@ export class AdminController {
   }
 
   @Post('complete-registration')
+  @ApiExcludeEndpoint()
   @ApiOperation({ summary: 'Complete admin registration after invitation' })
   @ApiBody({ type: CompleteAdminRegistrationDto })
   @ApiOkResponse({
@@ -119,6 +122,7 @@ export class AdminController {
 
 
   @Get('users')
+  @ApiExcludeEndpoint()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({
@@ -186,6 +190,7 @@ export class AdminController {
   }
 
   @Get('users/:id')
+  @ApiExcludeEndpoint()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Get user by ID' })
@@ -203,6 +208,7 @@ export class AdminController {
   }
 
   @Delete('users/:id')
+  @ApiExcludeEndpoint()
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)
   @ApiOperation({ summary: 'Delete user (soft or hard)' })
@@ -289,40 +295,40 @@ export class AdminController {
     return this.adminService.verifySeller(id);
   }
 
-  @Patch('sellers/:id/kyc-approve')
-  @UseGuards(JwtAuthGuard, RolesGuard)
- @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Approve seller KYC (admin only)' })
-  @ApiParam({
-    name: 'id',
-    description: 'Seller unique identifier (UUID)',
-    example: '123e4567-e89b-12d3-a456-426614174000',
-  })
-  @ApiOkResponse({ description: 'KYC approved successfully' })
-  @ApiNotFoundResponse({ description: 'User not found' })
-  @ApiBadRequestResponse({ description: 'User is not a seller' })
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT token' })
-  @ApiForbiddenResponse({ description: 'User does not have admin role' })
-  approveSellerKyc(@Param('id') id: string) {
-    return this.adminService.approveSellerKyc(id);
-  }
+//   @Patch('sellers/:id/kyc-approve')
+//   @UseGuards(JwtAuthGuard, RolesGuard)
+//  @Roles(UserRole.ADMIN)
+//   @ApiOperation({ summary: 'Approve seller KYC (admin only)' })
+//   @ApiParam({
+//     name: 'id',
+//     description: 'Seller unique identifier (UUID)',
+//     example: '123e4567-e89b-12d3-a456-426614174000',
+//   })
+//   @ApiOkResponse({ description: 'KYC approved successfully' })
+//   @ApiNotFoundResponse({ description: 'User not found' })
+//   @ApiBadRequestResponse({ description: 'User is not a seller' })
+//   @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT token' })
+//   @ApiForbiddenResponse({ description: 'User does not have admin role' })
+//   approveSellerKyc(@Param('id') id: string) {
+//     return this.adminService.approveSellerKyc(id);
+//   }
 
-  @Patch('products/:id/approve')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Approve product (admin only)' })
-  @ApiParam({
-    name: 'id',
-    description: 'Product unique identifier (UUID)',
-    example: '123e4567-e89b-12d3-a456-426614174000',
-  })
-  @ApiOkResponse({ description: 'Product approved successfully' })
-  @ApiNotFoundResponse({ description: 'Product not found' })
-  @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT token' })
-  @ApiForbiddenResponse({ description: 'User does not have admin role' })
-  approveProduct(@Param('id') id: string) {
-    return this.adminService.approveProduct(id);
-  }
+//   @Patch('products/:id/approve')
+//   @UseGuards(JwtAuthGuard, RolesGuard)
+//   @Roles(UserRole.ADMIN)
+//   @ApiOperation({ summary: 'Approve product (admin only)' })
+//   @ApiParam({
+//     name: 'id',
+//     description: 'Product unique identifier (UUID)',
+//     example: '123e4567-e89b-12d3-a456-426614174000',
+//   })
+//   @ApiOkResponse({ description: 'Product approved successfully' })
+//   @ApiNotFoundResponse({ description: 'Product not found' })
+//   @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT token' })
+//   @ApiForbiddenResponse({ description: 'User does not have admin role' })
+//   approveProduct(@Param('id') id: string) {
+//     return this.adminService.approveProduct(id);
+//   }
 
   @Get('sellers/:id/products')
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -351,7 +357,7 @@ export class AdminController {
   @ApiQuery({
     name: 'isVerified',
     required: false,
-    description: 'Filter by seller verification status (true/false)',
+    description: 'Filter by seller verification status (true/false/unverified/pending/verified)',
   })
   @ApiQuery({
     name: 'categoryId',
@@ -372,7 +378,13 @@ export class AdminController {
     @Query('isApproved') isApproved?: string,
   ) {
     const isVerifiedParsed =
-      isVerified !== undefined ? isVerified === 'true' : undefined;
+      isVerified !== undefined
+        ? isVerified === 'true'
+          ? true
+          : isVerified === 'false'
+            ? false
+            : isVerified
+        : undefined;
     const isApprovedParsed =
       isApproved !== undefined ? isApproved === 'true' : undefined;
 
