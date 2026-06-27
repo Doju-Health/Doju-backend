@@ -70,8 +70,8 @@ export class UsersService {
     const hasRequiredSellerFields = Boolean(
       user.companyName &&
         user.ninUrl &&
-        user.address &&
-        user.city,
+        user.businessAddress &&
+        user.businessCity,
     );
 
     return hasRequiredSellerFields
