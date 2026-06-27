@@ -30,7 +30,8 @@ export class ProductsService {
     seller: User,
     files?: Express.Multer.File[],
   ) {
-    if (seller.isVerified !== VerificationStatus.VERIFIED) {
+    if (seller.isVerified !== VerificationStatus.VERIFIED 
+      && seller.isVerified !== VerificationStatus.PENDING) {
       throw new ForbiddenException('Seller account is not verified');
     }
 
