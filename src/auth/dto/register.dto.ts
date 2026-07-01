@@ -1,4 +1,4 @@
-import { IsEmail, IsEnum, IsNotEmpty, IsOptional, MinLength } from 'class-validator';
+import { IsEmail, IsIn, IsNotEmpty, IsOptional, MinLength } from 'class-validator';
 import { UserRole } from 'src/users/enums/user.enum';
 
 export class RegisterDto {
@@ -11,7 +11,7 @@ export class RegisterDto {
     @MinLength(8)
     password: string;
 
-    @IsEnum(UserRole)
+    @IsIn([UserRole.BUYER, UserRole.SELLER])
     role: UserRole
 
     @IsNotEmpty()

@@ -196,7 +196,10 @@ export class PaymentsController {
     @Query('escrowStatus') escrowStatus?: EscrowStatus,
     @Query('provider') provider?: string,
   ) {
-    if (role && ![UserRole.BUYER, UserRole.SELLER, UserRole.ADMIN].includes(role)) {
+    if (
+      role &&
+      ![UserRole.BUYER, UserRole.SELLER, UserRole.ADMIN, UserRole.SUPER_ADMIN].includes(role)
+    ) {
       throw new BadRequestException('Invalid role value');
     }
 

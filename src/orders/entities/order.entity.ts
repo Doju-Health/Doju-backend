@@ -43,6 +43,9 @@ export class Order {
   @Column('decimal', { precision: 10, scale: 2, nullable: true })
   bulkEstimatedSellerAmount?: number | null;
 
+  @Column('decimal', { precision: 10, scale: 2, nullable: true, default: 0 })
+  bulkPlatformCharges?: number | null;
+
   @Column({
     type: 'enum',
     enum: OrderStatus,
@@ -77,6 +80,9 @@ export class Order {
 
   @Column('decimal', { precision: 10, scale: 2, nullable: true, default: 0 })
   deliveryFee?: number;
+
+  @Column('decimal', { precision: 10, scale: 2, nullable: true, default: 0 })
+  platformCharges?: number;
 
   @Column('decimal', { precision: 10, scale: 2, nullable: true })
   platformFee?: number | null;

@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -37,17 +38,12 @@ export class AdminService {
   ) {}
 
   async createAdminAccount(dto: CreateAdminAccountDto) {
-    const completedAdminCount = await this.userRepo
-      .createQueryBuilder('user')
-      .where('user.role = :role', { role: UserRole.ADMIN })
-      .andWhere('user.password IS NOT NULL')
-      .andWhere('user.emailVerified = true')
-      .getCount();
+    const existingSuperAdmin = await this.userRepo.findOne({
+      where: { isSuperAdmin: true },
+    });
 
-    if (completedAdminCount >= 2) {
-      throw new BadRequestException(
-        'Only two direct admin accounts can be created',
-      );
+    if (existingSuperAdmin) {
+      throw new BadRequestException('A super admin account already exists');
     }
 
     const existingUser = await this.userRepo.findOne({
@@ -66,6 +62,7 @@ export class AdminService {
       password: hashedPassword,
       phoneNumber: dto.phoneNumber,
       role: UserRole.ADMIN,
+      isSuperAdmin: true,
       emailVerified: true,
       isActive: true,
       isVerified: VerificationStatus.VERIFIED,
@@ -75,12 +72,21 @@ export class AdminService {
     const { password, ...safeAdmin } = savedAdmin;
 
     return {
-      message: 'Admin account created successfully',
+      message: 'Super admin account created successfully',
       user: safeAdmin,
     };
   }
 
-  async inviteAdmin(dto: InviteAdminDto) {
+  async inviteAdmin(
+    dto: InviteAdminDto,
+    requestingUser?: { id: string; isSuperAdmin?: boolean },
+  ) {
+    if (!requestingUser?.isSuperAdmin) {
+      throw new ForbiddenException(
+        'Only the super admin can invite admin accounts',
+      );
+    }
+
     const existingUser = await this.userRepo
       .createQueryBuilder('user')
       .addSelect('user.password')
@@ -103,6 +109,7 @@ export class AdminService {
         fullName: dto.fullName,
         email: dto.email,
         role: UserRole.ADMIN,
+        isSuperAdmin: false,
         emailVerified: false,
         isActive: true,
         isVerified: VerificationStatus.VERIFIED,
@@ -132,6 +139,43 @@ export class AdminService {
       email: dto.email,
       completeUrl,
     };
+  }
+
+  async removeAdmin(
+    id: string,
+    hard: boolean,
+    requestingUser: { id: string; isSuperAdmin?: boolean },
+  ) {
+    if (!requestingUser.isSuperAdmin) {
+      throw new ForbiddenException(
+        'Only the super admin can remove admin accounts',
+      );
+    }
+
+    const admin = await this.userRepo.findOne({ where: { id } });
+
+    if (!admin) {
+      throw new NotFoundException('Admin not found');
+    }
+
+    if (admin.role !== UserRole.ADMIN) {
+      throw new BadRequestException('User is not an admin');
+    }
+
+    if (admin.isSuperAdmin) {
+      throw new BadRequestException(
+        'The super admin account cannot be removed',
+      );
+    }
+
+    if (!hard) {
+      admin.isActive = false;
+      await this.userRepo.save(admin);
+      return { message: 'Admin deactivated successfully' };
+    }
+
+    await this.userRepo.delete(admin.id);
+    return { message: 'Admin deleted successfully' };
   }
 
   async completeAdminRegistration(dto: CompleteAdminRegistrationDto) {
@@ -203,10 +247,13 @@ export class AdminService {
       'user.email',
       'user.phoneNumber',
       'user.role',
+      'user.isSuperAdmin',
       'user.companyName',
       'user.address',
       'user.profileImageUrl',
       'user.licenseNumber',
+      'user.kycApproved',
+      'user.kycRejectionReason',
       'user.emailVerified',
       'user.isVerified',
       'user.ninUrl',
@@ -268,10 +315,13 @@ export class AdminService {
         'email',
         'phoneNumber',
         'role',
+        'isSuperAdmin',
         'companyName',
         'address',
         'profileImageUrl',
         'licenseNumber',
+        'kycApproved',
+        'kycRejectionReason',
         'cacUrl',
         'ninUrl',
         // 'flutterwaveRecipientCode',
@@ -290,11 +340,27 @@ export class AdminService {
     return user;
   }
 
-  async deleteUser(id: string, hard: boolean) {
+  async deleteUser(
+    id: string,
+    hard: boolean,
+    requestingUser?: { id: string; isSuperAdmin?: boolean },
+  ) {
     const user = await this.userRepo.findOne({ where: { id } });
 
     if (!user) {
       throw new NotFoundException('User not found');
+    }
+
+    if (user.isSuperAdmin) {
+      throw new BadRequestException(
+        'The super admin account cannot be removed',
+      );
+    }
+
+    if (user.role === UserRole.ADMIN && !requestingUser?.isSuperAdmin) {
+      throw new ForbiddenException(
+        'Only the super admin can manage admin accounts',
+      );
     }
 
     if (!hard) {
@@ -330,11 +396,26 @@ export class AdminService {
     }
   }
 
-  async deactivateUser(id: string) {
+  async deactivateUser(
+    id: string,
+    requestingUser?: { id: string; isSuperAdmin?: boolean },
+  ) {
     const user = await this.userRepo.findOne({ where: { id } });
 
     if (!user) {
       throw new NotFoundException('User not found');
+    }
+
+    if (user.isSuperAdmin) {
+      throw new BadRequestException(
+        'The super admin account cannot be deactivated',
+      );
+    }
+
+    if (user.role === UserRole.ADMIN && !requestingUser?.isSuperAdmin) {
+      throw new ForbiddenException(
+        'Only the super admin can manage admin accounts',
+      );
     }
 
     if (!user.isActive) {
@@ -384,17 +465,24 @@ export class AdminService {
       throw new BadRequestException('User is not a seller');
     }
 
-    if (user.isVerified === VerificationStatus.VERIFIED) {
+    if (user.isVerified === VerificationStatus.VERIFIED && user.kycApproved) {
       return { message: 'Seller already verified' };
     }
 
+    user.kycApproved = true;
+    user.kycRejectionReason = undefined;
     user.isVerified = VerificationStatus.VERIFIED;
     await this.userRepo.save(user);
+
+    await this.emailService.sendSellerKycApprovedEmail(
+      user.email,
+      user.fullName,
+    );
 
     return { message: 'Seller verified successfully' };
   }
 
-  async approveSellerKyc(id: string) {
+  async rejectSeller(id: string, reason: string) {
     const user = await this.userRepo.findOne({ where: { id } });
 
     if (!user) {
@@ -405,15 +493,45 @@ export class AdminService {
       throw new BadRequestException('User is not a seller');
     }
 
-    if (user.kycApproved) {
-      return { message: 'KYC already approved' };
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      throw new BadRequestException('Reason is required');
     }
 
-    user.kycApproved = true;
+    user.kycApproved = false;
+    user.kycRejectionReason = trimmedReason;
+    user.isVerified = VerificationStatus.REJECTED;
     await this.userRepo.save(user);
 
-    return { message: 'KYC approved successfully' };
+    await this.emailService.sendSellerKycRejectedEmail(
+      user.email,
+      user.fullName,
+      trimmedReason,
+    );
+
+    return { message: 'Seller rejected successfully' };
   }
+
+  // async approveSellerKyc(id: string) {
+  //   const user = await this.userRepo.findOne({ where: { id } });
+
+  //   if (!user) {
+  //     throw new NotFoundException('User not found');
+  //   }
+
+  //   if (user.role !== UserRole.SELLER) {
+  //     throw new BadRequestException('User is not a seller');
+  //   }
+
+  //   if (user.kycApproved) {
+  //     return { message: 'KYC already approved' };
+  //   }
+
+  //   user.kycApproved = true;
+  //   await this.userRepo.save(user);
+
+  //   return { message: 'KYC approved successfully' };
+  // }
 
   async approveProduct(id: string) {
     const product = await this.productRepo.findOne({ where: { id } });

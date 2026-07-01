@@ -22,6 +22,26 @@ export class AdminUserResponseDto {
   role: UserRole;
 
   @ApiProperty({
+    example: false,
+    description: 'Whether this admin is the single super admin',
+  })
+  isSuperAdmin: boolean;
+
+  @ApiProperty({
+    example: true,
+    description: 'Whether seller KYC has been approved',
+    nullable: true,
+  })
+  kycApproved?: boolean;
+
+  @ApiProperty({
+    example: 'Submitted documents were blurry',
+    description: 'Reason for KYC rejection, if applicable',
+    nullable: true,
+  })
+  kycRejectionReason?: string;
+
+  @ApiProperty({
     example: 'HealthEquip Ltd',
     description: 'Company name (seller only)',
     nullable: true,

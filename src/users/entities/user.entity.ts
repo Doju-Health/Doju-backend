@@ -31,6 +31,9 @@ export class User {
   })
   role: UserRole;
 
+  @Column({ default: false })
+  isSuperAdmin: boolean;
+
   // 🔹 Google OAuth fields
   @Column({ nullable: true })
   googleId?: string;
@@ -102,6 +105,9 @@ export class User {
 
   @Column({ default: false })
   kycApproved?: boolean;
+
+  @Column({ nullable: true })
+  kycRejectionReason?: string;
 
   @Column({
     type: 'enum',

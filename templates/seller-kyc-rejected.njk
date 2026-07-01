@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Seller KYC Rejected</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background: #f5f5f5;
+        font-family: Arial, Helvetica, sans-serif;
+      }
+
+      .container {
+        width: 100%;
+        max-width: 600px;
+        margin: 40px auto;
+        background: #ffffff;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      }
+
+      .header {
+        background: #f06666;
+        padding: 40px 20px;
+        text-align: center;
+        color: #ffffff;
+      }
+
+      .header h1 {
+        margin: 0;
+        font-size: 24px;
+      }
+
+      .content {
+        padding: 40px 30px;
+        color: #333333;
+        font-size: 16px;
+        line-height: 24px;
+      }
+
+      .highlight {
+        background: #fff5f5;
+        border-left: 4px solid #f06666;
+        padding: 16px;
+        border-radius: 6px;
+        margin: 24px 0;
+        color: #444;
+      }
+
+      .footer {
+        background: #f7f7f7;
+        text-align: center;
+        padding: 20px;
+        font-size: 14px;
+        color: #666666;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>Your Seller KYC Was Not Approved</h1>
+      </div>
+
+      <div class="content">
+        <p>Hi {{ fullName }},</p>
+
+        <p>
+          We reviewed your seller KYC submission on DOJU and it was not approved at this time.
+        </p>
+
+        <div class="highlight">
+          <strong>Reason</strong>
+          <div>{{ reason }}</div>
+        </div>
+
+        <p>
+          Please update the requested details or documents and submit again for review.
+        </p>
+
+        <p>
+          Best regards,<br />
+          The DOJU Team
+        </p>
+      </div>
+
+      <div class="footer">
+        You are receiving this email because your seller account on DOJU was reviewed for {{ email }}.
+        <br /><br />
+        (c) 2026 DOJU
+      </div>
+    </div>
+  </body>
+</html>

@@ -47,7 +47,7 @@ export class AuthService {
   async register(registerDto: RegisterDto) {
     const { email, password, fullName, role, phoneNumber } = registerDto;
 
-    if (role === UserRole.ADMIN) {
+    if (role === UserRole.ADMIN || role === UserRole.SUPER_ADMIN) {
       throw new BadRequestException(
         'Admin accounts must be created from the admin endpoint',
       );

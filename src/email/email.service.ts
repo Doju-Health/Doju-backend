@@ -114,6 +114,89 @@ export class EmailService {
     });
   }
 
+  /**
+   * Send seller KYC approved email
+   */
+  async sendSellerKycApprovedEmail(
+    email: string,
+    fullName?: string,
+  ): Promise<void> {
+    const html = nunjucks.render('seller-kyc-approved.njk', {
+      fullName: fullName || 'there',
+      email,
+    });
+
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: email,
+      subject: 'Your seller KYC has been approved',
+      html,
+    });
+  }
+
+  /**
+   * Send seller KYC rejected email
+   */
+  async sendSellerKycRejectedEmail(
+    email: string,
+    fullName: string | undefined,
+    reason: string,
+  ): Promise<void> {
+    const html = nunjucks.render('seller-kyc-rejected.njk', {
+      fullName: fullName || 'there',
+      email,
+      reason,
+    });
+
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: email,
+      subject: 'Your seller KYC has been rejected',
+      html,
+    });
+  }
+
+  /**
+   * Send seller notification that a product has been purchased
+   */
+  async sendProductPurchasedEmail(params: {
+    sellerEmail: string;
+    sellerName?: string;
+    buyerName: string;
+    buyerLocation: string;
+    productName: string;
+    quantity: number;
+    unitPrice: string;
+    totalPaid: string;
+    purchaseTime: string;
+    expectedDeliveryDate: string;
+    deliveryAddress?: string;
+    deliveryFee?: string;
+    orderDetailsUrl: string;
+  }): Promise<void> {
+    const html = nunjucks.render('seller-product-purchased.njk', {
+      sellerName: params.sellerName || 'there',
+      buyerName: params.buyerName,
+      buyerLocation: params.buyerLocation,
+      productName: params.productName,
+      quantity: params.quantity,
+      unitPrice: params.unitPrice,
+      totalPaid: params.totalPaid,
+      purchaseTime: params.purchaseTime,
+      expectedDeliveryDate: params.expectedDeliveryDate,
+      deliveryAddress: params.deliveryAddress,
+      deliveryFee: params.deliveryFee,
+      orderDetailsUrl: params.orderDetailsUrl,
+    });
+
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: params.sellerEmail,
+      subject: 'Your Product Has Been Purchased',
+      html,
+    });
+  }
+
   private getFromAddress(): string {
     return process.env.RESEND_FROM_EMAIL || this.defaultFrom;
   }

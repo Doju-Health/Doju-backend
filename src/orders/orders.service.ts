@@ -18,6 +18,8 @@ import { DeliveryRateCardService } from 'src/common/services/delivery-rate-card.
 
 @Injectable()
 export class OrdersService {
+  private readonly platformCharges = 200;
+
   constructor(
     @InjectRepository(Order)
     private orderRepo: Repository<Order>,
@@ -101,6 +103,8 @@ export class OrdersService {
       );
     }
 
+    const platformCharges = this.platformCharges;
+    const displayDeliveryFee = deliveryFee + platformCharges;
     const estimatedPlatformFee = Math.floor(totalPrice * 0.12);
     const estimatedSellerAmount = Math.floor(totalPrice - estimatedPlatformFee);
 
@@ -110,14 +114,15 @@ export class OrdersService {
       product,
       quantity: dto.quantity,
       unitPrice: product.price,
-      totalPrice: totalPrice + deliveryFee, // Include delivery fee in total
+      totalPrice: totalPrice + displayDeliveryFee,
       deliveryAddress: dto.deliveryAddress || buyer.address,
       deliveryCity,
       pickupStore: dto.pickupStore,
       deliveryState,
       departureZone,
       arrivalZone,
-      deliveryFee,
+      deliveryFee: displayDeliveryFee,
+      platformCharges,
       platformFee: null as any,
       sellerAmount: null as any,
       estimatedPlatformFee,
@@ -162,6 +167,7 @@ export class OrdersService {
       let bulkDeliveryFee = 0;
       let bulkEstimatedPlatformFee = 0;
       let bulkEstimatedSellerAmount = 0;
+      const platformCharges = this.platformCharges;
 
       for (let i = 0; i < dto.productIds.length; i++) {
         const productId = dto.productIds[i];
@@ -197,9 +203,10 @@ export class OrdersService {
           buyer,
         );
         const deliveryFee = deliveryDetails.deliveryFee * quantity;
-        const orderTotal = lineTotal + deliveryFee;
+        const displayDeliveryFee = deliveryFee + platformCharges;
+        const orderTotal = lineTotal + displayDeliveryFee;
         totalPrice += orderTotal;
-        bulkDeliveryFee += deliveryFee;
+        bulkDeliveryFee += displayDeliveryFee;
         const estimatedPlatformFee = Math.floor(lineTotal * 0.12);
         const estimatedSellerAmount = Math.floor(
           lineTotal - estimatedPlatformFee,
@@ -220,7 +227,8 @@ export class OrdersService {
           deliveryState: deliveryDetails.deliveryState,
           departureZone: deliveryDetails.departureZone,
           arrivalZone: deliveryDetails.arrivalZone,
-          deliveryFee,
+          deliveryFee: displayDeliveryFee,
+          platformCharges,
           estimatedDeliveryDays: deliveryDetails.estimatedDeliveryDays,
           platformFee: null as any,
           sellerAmount: null as any,

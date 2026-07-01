@@ -18,6 +18,7 @@ import { EscrowStatus } from './entities/payment.entity';
 import { UserRole } from 'src/users/enums/user.enum';
 import * as crypto from 'crypto';
 import { HttpsProxyAgent } from 'https-proxy-agent';
+import { EmailService } from 'src/email/email.service';
 
 @Injectable()
 export class PaymentsService {
@@ -33,6 +34,7 @@ export class PaymentsService {
     @InjectRepository(Product)
     private productRepo: Repository<Product>,
     private configService: ConfigService,
+    private emailService: EmailService,
   ) {
     this.flwSecretKey = this.configService.get<string>('FLW_SECRET_KEY') ?? '';
     this.flwWebhookHash =
@@ -349,7 +351,11 @@ export class PaymentsService {
       .leftJoinAndSelect('product.seller', 'seller')
       .where('payment.id = :id', { id });
 
-    if (user && user.role !== UserRole.ADMIN) {
+    if (
+      user &&
+      user.role !== UserRole.ADMIN &&
+      user.role !== UserRole.SUPER_ADMIN
+    ) {
       qb.andWhere(
         new Brackets((subQb) => {
           subQb
@@ -417,6 +423,7 @@ export class PaymentsService {
         if (bulkOrderId) {
           const bulkOrders = await this.orderRepo.find({
             where: { bulkOrderId },
+            relations: ['buyer', 'product', 'product.seller'],
           });
           if (bulkOrders.length === 0)
             throw new NotFoundException('Bulk order not found');
@@ -435,6 +442,20 @@ export class PaymentsService {
 
           await this.orderRepo.save(payment.order);
         }
+
+        const ordersToNotify = bulkOrderId
+          ? await this.orderRepo.find({
+              where: { bulkOrderId },
+              relations: ['buyer', 'product', 'product.seller'],
+              order: { createdAt: 'DESC' },
+            })
+          : [payment.order];
+
+        await this.notifySellerPurchaseEmails(
+          ordersToNotify,
+          payment.paidAt ?? new Date(),
+          tx_ref,
+        );
       }
 
       await this.paymentRepo.save(payment);
@@ -497,6 +518,131 @@ export class PaymentsService {
       payment.transferredAt = null;
       await this.paymentRepo.save(payment);
     }
+  }
+
+  private async notifySellerPurchaseEmails(
+    orders: Order[],
+    paidAt: Date,
+    txRef: string,
+  ): Promise<void> {
+    const purchaseTime = this.formatDateTime(paidAt);
+
+    const notifications = orders
+      .map(async (order) => {
+        const seller = order.product?.seller;
+        if (!seller?.email) {
+          return;
+        }
+
+        const buyerName = order.buyer?.fullName || order.buyer?.email || 'Buyer';
+        const buyerLocation = this.formatBuyerLocation(order);
+        const expectedDeliveryDate = this.formatExpectedDeliveryDate(
+          order,
+          paidAt,
+        );
+
+        const orderDetailsUrl = this.buildOrderDetailsUrl(order.id, txRef);
+
+        await this.emailService.sendProductPurchasedEmail({
+          sellerEmail: seller.email,
+          sellerName: seller.fullName,
+          buyerName,
+          buyerLocation,
+          productName: order.product?.name || 'your product',
+          quantity: order.quantity,
+          unitPrice: this.formatCurrency(Number(order.unitPrice)),
+          totalPaid: this.formatCurrency(Number(order.totalPrice)),
+          purchaseTime,
+          expectedDeliveryDate,
+          deliveryAddress: order.deliveryAddress || undefined,
+          deliveryFee:
+            order.deliveryFee !== undefined && order.deliveryFee !== null
+              ? this.formatCurrency(Number(order.deliveryFee))
+              : undefined,
+          orderDetailsUrl,
+        });
+      })
+      .map((task) => task.catch((error) => {
+        console.error(
+          'Seller purchase email failed:',
+          error?.message || error,
+        );
+      }));
+
+    await Promise.all(notifications);
+  }
+
+  private buildOrderDetailsUrl(orderId: string, txRef: string): string {
+    const frontendUrl = process.env.FRONTEND_URL ?? '';
+    const baseUrl = frontendUrl.replace(/\/$/, '');
+    const route = `/seller/orders/${encodeURIComponent(orderId)}`;
+
+    if (!baseUrl) {
+      return `/seller/orders/${encodeURIComponent(orderId)}?reference=${encodeURIComponent(txRef)}`;
+    }
+
+    return `${baseUrl}${route}?reference=${encodeURIComponent(txRef)}`;
+  }
+
+  private formatBuyerLocation(order: Order): string {
+    const city = order.deliveryCity || order.buyer?.city;
+    const state = order.deliveryState || order.buyer?.state;
+
+    if (city && state) {
+      return `${city}, ${state}`;
+    }
+
+    return city || state || order.deliveryAddress || 'N/A';
+  }
+
+  private formatExpectedDeliveryDate(order: Order, paidAt: Date): string {
+    const daysText = order.estimatedDeliveryDays?.trim();
+    if (!daysText) {
+      return 'Not available';
+    }
+
+    const matches = daysText.match(/\d+/g);
+    if (!matches || matches.length === 0) {
+      return daysText;
+    }
+
+    const minDays = Number(matches[0]);
+    const maxDays = Number(matches[matches.length - 1]);
+    const start = this.addDays(paidAt, minDays);
+    const end = this.addDays(paidAt, maxDays || minDays);
+
+    if (minDays === maxDays || Number.isNaN(maxDays)) {
+      return this.formatDate(start);
+    }
+
+    return `${this.formatDate(start)} - ${this.formatDate(end)}`;
+  }
+
+  private formatDateTime(date: Date): string {
+    return new Intl.DateTimeFormat('en-NG', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(date);
+  }
+
+  private formatDate(date: Date): string {
+    return new Intl.DateTimeFormat('en-NG', {
+      dateStyle: 'medium',
+    }).format(date);
+  }
+
+  private addDays(date: Date, days: number): Date {
+    const result = new Date(date);
+    result.setDate(result.getDate() + days);
+    return result;
+  }
+
+  private formatCurrency(amount: number): string {
+    return new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency: 'NGN',
+      maximumFractionDigits: 2,
+    }).format(amount);
   }
 
   /**

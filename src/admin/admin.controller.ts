@@ -31,7 +31,9 @@ import {
 import { AdminService } from './admin.service';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth-guard';
 import { RolesGuard } from 'src/common/guards/role.guards';
+import { SuperAdminGuard } from 'src/common/guards/super-admin.guard';
 import { Roles } from 'src/common/decorators/roles.decorator';
+import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import { UserRole } from 'src/users/enums/user.enum';
 import { PaginatedUsersResponseDto } from './dto/paginated-users-response.dto';
 import { AdminUserResponseDto } from './dto/admin-user-response.dto';
@@ -39,6 +41,7 @@ import { OrderStatus, PaymentStatus } from 'src/orders/enums/order.enum';
 import { CreateAdminAccountDto } from './dto/create-admin-account.dto';
 import { InviteAdminDto } from './dto/invite-admin.dto';
 import { CompleteAdminRegistrationDto } from './dto/complete-admin-registration.dto';
+import { RejectSellerDto } from './dto/reject-seller.dto';
 
 @ApiTags('Admin')
 @ApiBearerAuth()
@@ -48,18 +51,19 @@ export class AdminController {
 
   @Post('accounts')
   @ApiExcludeEndpoint()
-  @ApiOperation({ summary: 'Create an admin account' })
+  @ApiOperation({ summary: 'Create the super admin account' })
   @ApiBody({ type: CreateAdminAccountDto })
   @ApiCreatedResponse({
-    description: 'Admin account created successfully',
+    description: 'Super admin account created successfully',
     schema: {
       example: {
-        message: 'Admin account created successfully',
+        message: 'Super admin account created successfully',
         user: {
           id: '123e4567-e89b-12d3-a456-426614174000',
           fullName: 'Ada Admin',
           email: 'ada.admin@dojuhealth.com',
           role: 'admin',
+          isSuperAdmin: true,
           emailVerified: true,
           isActive: true,
         },
@@ -74,10 +78,10 @@ export class AdminController {
   }
 
   @Post('invite')
-   @ApiExcludeEndpoint()
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiExcludeEndpoint()
+  @UseGuards(JwtAuthGuard, RolesGuard, SuperAdminGuard)
   @Roles(UserRole.ADMIN)
-  @ApiOperation({ summary: 'Invite an admin by email' })
+  @ApiOperation({ summary: 'Invite an admin by email (super admin only)' })
   @ApiBody({ type: InviteAdminDto })
   @ApiCreatedResponse({
     description: 'Admin invitation sent successfully',
@@ -93,10 +97,39 @@ export class AdminController {
   @ApiBadRequestResponse({ description: 'Email cannot be invited' })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT token' })
   @ApiForbiddenResponse({ description: 'User does not have admin role' })
-  @UseGuards(JwtAuthGuard, RolesGuard)
+  inviteAdmin(
+    @CurrentUser() currentUser: { id: string; isSuperAdmin?: boolean },
+    @Body() dto: InviteAdminDto,
+  ) {
+    return this.adminService.inviteAdmin(dto, currentUser);
+  }
+
+  @Delete('admins/:id')
+  @ApiExcludeEndpoint()
+  @UseGuards(JwtAuthGuard, RolesGuard, SuperAdminGuard)
   @Roles(UserRole.ADMIN)
-  inviteAdmin(@Body() dto: InviteAdminDto) {
-    return this.adminService.inviteAdmin(dto);
+  @ApiOperation({ summary: 'Remove an admin account (super admin only)' })
+  @ApiParam({
+    name: 'id',
+    description: 'Admin unique identifier (UUID)',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiQuery({
+    name: 'hard',
+    required: false,
+    description: 'Hard delete admin when true (default: false)',
+  })
+  @ApiOkResponse({ description: 'Admin deleted/deactivated successfully' })
+  @ApiBadRequestResponse({ description: 'Invalid request' })
+  @ApiNotFoundResponse({ description: 'Admin not found' })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT token' })
+  @ApiForbiddenResponse({ description: 'User does not have admin role' })
+  removeAdmin(
+    @CurrentUser() currentUser: { id: string; isSuperAdmin?: boolean },
+    @Param('id') id: string,
+    @Query('hard', new DefaultValuePipe(false), ParseBoolPipe) hard: boolean,
+  ) {
+    return this.adminService.removeAdmin(id, hard, currentUser);
   }
 
   @Post('complete-registration')
@@ -228,10 +261,11 @@ export class AdminController {
   @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT token' })
   @ApiForbiddenResponse({ description: 'User does not have admin role' })
   deleteUser(
+    @CurrentUser() currentUser: { id: string; isSuperAdmin?: boolean },
     @Param('id') id: string,
     @Query('hard', new DefaultValuePipe(false), ParseBoolPipe) hard: boolean,
   ) {
-    return this.adminService.deleteUser(id, hard);
+    return this.adminService.deleteUser(id, hard, currentUser);
   }
 
   @Patch('users/:id/deactivate')
@@ -247,8 +281,11 @@ export class AdminController {
   @ApiNotFoundResponse({ description: 'User not found' })
   @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT token' })
   @ApiForbiddenResponse({ description: 'User does not have admin role' })
-  deactivateUser(@Param('id') id: string) {
-    return this.adminService.deactivateUser(id);
+  deactivateUser(
+    @CurrentUser() currentUser: { id: string; isSuperAdmin?: boolean },
+    @Param('id') id: string,
+  ) {
+    return this.adminService.deactivateUser(id, currentUser);
   }
 
   @Delete('products/:id')
@@ -293,6 +330,25 @@ export class AdminController {
   @ApiForbiddenResponse({ description: 'User does not have admin role' })
   verifySeller(@Param('id') id: string) {
     return this.adminService.verifySeller(id);
+  }
+
+  @Patch('sellers/:id/reject')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Reject seller KYC (admin only)' })
+  @ApiParam({
+    name: 'id',
+    description: 'Seller unique identifier (UUID)',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiBody({ type: RejectSellerDto })
+  @ApiOkResponse({ description: 'Seller rejected successfully' })
+  @ApiNotFoundResponse({ description: 'User not found' })
+  @ApiBadRequestResponse({ description: 'User is not a seller or reason is invalid' })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT token' })
+  @ApiForbiddenResponse({ description: 'User does not have admin role' })
+  rejectSeller(@Param('id') id: string, @Body() dto: RejectSellerDto) {
+    return this.adminService.rejectSeller(id, dto.reason);
   }
 
 //   @Patch('sellers/:id/kyc-approve')
