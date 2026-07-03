@@ -61,7 +61,7 @@ export class AdminService {
       email: dto.email,
       password: hashedPassword,
       phoneNumber: dto.phoneNumber,
-      role: UserRole.ADMIN,
+      role: UserRole.SUPER_ADMIN,
       isSuperAdmin: true,
       emailVerified: true,
       isActive: true,

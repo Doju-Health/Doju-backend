@@ -50,7 +50,7 @@ export class AdminController {
   constructor(private readonly adminService: AdminService) {}
 
   @Post('accounts')
-  @ApiExcludeEndpoint()
+  // @ApiExcludeEndpoint()
   @ApiOperation({ summary: 'Create the super admin account' })
   @ApiBody({ type: CreateAdminAccountDto })
   @ApiCreatedResponse({
@@ -62,7 +62,7 @@ export class AdminController {
           id: '123e4567-e89b-12d3-a456-426614174000',
           fullName: 'Ada Admin',
           email: 'ada.admin@dojuhealth.com',
-          role: 'admin',
+          role: 'super_admin',
           isSuperAdmin: true,
           emailVerified: true,
           isActive: true,
