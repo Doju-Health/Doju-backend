@@ -229,6 +229,9 @@ export class AdminService {
     role,
     isActive,
     search,
+    companyName,
+    createdAt,
+    isVerified,
     sortBy = 'createdAt',
   }: {
     page?: number;
@@ -236,6 +239,9 @@ export class AdminService {
     role?: UserRole;
     isActive?: boolean;
     search?: string;
+    companyName?: string;
+    createdAt?: string;
+    isVerified?: VerificationStatus | boolean | string;
     sortBy?: 'createdAt' | 'fullName' | 'email';
   }) {
     const safePage = Math.max(page, 1);
@@ -278,6 +284,12 @@ export class AdminService {
       });
     }
 
+    this.applyUserFilters(qb, {
+      companyName,
+      createdAt,
+      isVerified,
+    });
+
     switch (sortBy) {
       case 'fullName':
         qb.orderBy('user.fullName', 'ASC');
@@ -306,38 +318,140 @@ export class AdminService {
     };
   }
 
-  async getUserById(id: string) {
-    const user = await this.userRepo.findOne({
-      where: { id },
-      select: [
-        'id',
-        'fullName',
-        'email',
-        'phoneNumber',
-        'role',
-        'isSuperAdmin',
-        'companyName',
-        'address',
-        'profileImageUrl',
-        'licenseNumber',
-        'kycApproved',
-        'kycRejectionReason',
-        'cacUrl',
-        'ninUrl',
-        // 'flutterwaveRecipientCode',
-        'emailVerified',
-        'isVerified',
-        'isActive',
-        'createdAt',
-        'updatedAt',
-      ],
-    });
+  async getUserById(
+    id: string,
+    filters?: {
+      companyName?: string;
+      createdAt?: string;
+      isVerified?: VerificationStatus | boolean | string;
+    },
+  ) {
+    const qb = this.userRepo
+      .createQueryBuilder('user')
+      .select([
+        'user.id',
+        'user.fullName',
+        'user.email',
+        'user.phoneNumber',
+        'user.role',
+        'user.isSuperAdmin',
+        'user.companyName',
+        'user.address',
+        'user.profileImageUrl',
+        'user.licenseNumber',
+        'user.kycApproved',
+        'user.kycRejectionReason',
+        'user.cacUrl',
+        'user.ninUrl',
+        // 'user.flutterwaveRecipientCode',
+        'user.emailVerified',
+        'user.isVerified',
+        'user.isActive',
+        'user.createdAt',
+        'user.updatedAt',
+      ])
+      .where('user.id = :id', { id });
+
+    this.applyUserFilters(qb, filters);
+
+    const user = await qb.getOne();
 
     if (!user) {
       throw new NotFoundException('User not found');
     }
 
     return user;
+  }
+
+  private applyUserFilters(
+    qb: {
+      andWhere: (condition: string, parameters?: Record<string, unknown>) => any;
+    },
+    filters?: {
+      companyName?: string;
+      createdAt?: string;
+      isVerified?: VerificationStatus | boolean | string;
+    },
+  ) {
+    if (!filters) {
+      return;
+    }
+
+    const { companyName, createdAt, isVerified } = filters;
+
+    if (companyName) {
+      qb.andWhere('user.companyName ILIKE :companyName', {
+        companyName: `%${companyName}%`,
+      });
+    }
+
+    if (createdAt) {
+      const createdAtDate = new Date(createdAt);
+
+      if (Number.isNaN(createdAtDate.getTime())) {
+        throw new BadRequestException('Invalid createdAt value');
+      }
+
+      qb.andWhere('DATE(user.createdAt) = DATE(:createdAt)', {
+        createdAt: createdAtDate.toISOString(),
+      });
+    }
+
+    if (isVerified !== undefined) {
+      const verificationStatus = this.normalizeVerificationStatus(isVerified);
+
+      if (!verificationStatus) {
+        throw new BadRequestException('Invalid isVerified value');
+      }
+
+      qb.andWhere('user.isVerified = :isVerified', {
+        isVerified: verificationStatus,
+      });
+    }
+  }
+
+  private normalizeVerificationStatus(
+    value: VerificationStatus | boolean | string,
+  ): VerificationStatus | undefined {
+    if (value === true) {
+      return VerificationStatus.VERIFIED;
+    }
+
+    if (value === false) {
+      return VerificationStatus.UNVERIFIED;
+    }
+
+    if (
+      value === VerificationStatus.VERIFIED ||
+      value === VerificationStatus.PENDING ||
+      value === VerificationStatus.UNVERIFIED ||
+      value === VerificationStatus.REJECTED
+    ) {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      const normalized = value.toLowerCase();
+
+      if (normalized === 'true') {
+        return VerificationStatus.VERIFIED;
+      }
+
+      if (normalized === 'false') {
+        return VerificationStatus.UNVERIFIED;
+      }
+
+      if (
+        normalized === VerificationStatus.VERIFIED ||
+        normalized === VerificationStatus.PENDING ||
+        normalized === VerificationStatus.UNVERIFIED ||
+        normalized === VerificationStatus.REJECTED
+      ) {
+        return normalized as VerificationStatus;
+      }
+    }
+
+    return undefined;
   }
 
   async deleteUser(
