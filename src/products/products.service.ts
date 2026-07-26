@@ -3,6 +3,7 @@ import {
   ForbiddenException,
   NotFoundException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -14,15 +15,22 @@ import { UpdateProductDto } from './dto/update-product.dto';
 import { User } from 'src/users/entities/user.entity';
 import { CloudinaryService } from 'src/common/services/cloudinary.service';
 import { VerificationStatus } from 'src/users/enums/user.enum';
+import { EmailService } from 'src/email/email.service';
+import { UserRole } from 'src/users/enums/user.enum';
 
 @Injectable()
 export class ProductsService {
+  private readonly logger = new Logger(ProductsService.name);
+
   constructor(
     @InjectRepository(Product)
     private productRepo: Repository<Product>,
     @InjectRepository(ProductCategory)
     private categoryRepo: Repository<ProductCategory>,
+    @InjectRepository(User)
+    private userRepo: Repository<User>,
     private cloudinaryService: CloudinaryService,
+    private emailService: EmailService,
   ) {}
 
   async create(
@@ -63,7 +71,23 @@ export class ProductsService {
       category,
     });
 
-    return this.productRepo.save(product);
+    const savedProduct = await this.productRepo.save(product);
+
+    void this.notifySellerProductPendingReview(savedProduct).catch((error) => {
+      this.logger.error(
+        'Failed to send seller product pending review notification',
+        error instanceof Error ? error.stack : String(error),
+      );
+    });
+
+    void this.notifyAdminsAboutNewProduct(savedProduct).catch((error) => {
+      this.logger.error(
+        'Failed to send admin product review notification',
+        error instanceof Error ? error.stack : String(error),
+      );
+    });
+
+    return savedProduct;
   }
 
   async findAll({
@@ -198,5 +222,131 @@ export class ProductsService {
     await this.productRepo.save(product);
 
     return { message: 'Product deleted successfully' };
+  }
+
+  private async notifySellerProductPendingReview(
+    product: Product,
+  ): Promise<void> {
+    if (!product.seller?.email) {
+      return;
+    }
+
+    await this.emailService.sendProductPendingReviewEmail({
+      sellerEmail: product.seller.email,
+      sellerName: product.seller.fullName,
+      productName: product.name,
+      productPrice: this.formatMoney(product.price),
+      productDescription: product.description,
+      productCategory: product.category?.name,
+      productStock: product.stock,
+      productSize: product.size,
+    });
+  }
+
+  private async notifyAdminsAboutNewProduct(product: Product): Promise<void> {
+    const admins = await this.userRepo.find({
+      where: [
+        { role: UserRole.ADMIN, isActive: true, emailVerified: true },
+        { role: UserRole.SUPER_ADMIN, isActive: true, emailVerified: true },
+      ],
+      select: ['id', 'fullName', 'email'],
+    });
+
+    if (admins.length === 0) {
+      return;
+    }
+
+    const adminDashboardUrl = this.buildAdminDashboardUrl(product.id);
+
+    await Promise.all(
+      admins
+        .filter((admin) => !!admin.email)
+        .map((admin) =>
+          this.emailService.sendProductReviewNotificationEmail({
+            adminEmail: admin.email,
+            adminName: admin.fullName,
+            productName: product.name,
+            productPrice: this.formatMoney(product.price),
+            productDescription: product.description,
+            productCategory: product.category?.name,
+            productStock: product.stock,
+            productSize: product.size,
+            sellerName: product.seller?.fullName || 'Unknown seller',
+            sellerEmail: product.seller?.email || 'N/A',
+            sellerCompanyName: product.seller?.companyName,
+            productCreatedAt: product.createdAt.toISOString(),
+            adminDashboardUrl,
+          }),
+        ),
+    );
+  }
+
+  async notifySellerProductApproved(productId: string): Promise<void> {
+    const product = await this.productRepo.findOne({
+      where: { id: productId },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    if (!product.seller?.email) {
+      return;
+    }
+
+    await this.emailService.sendProductApprovedEmail({
+      sellerEmail: product.seller.email,
+      sellerName: product.seller.fullName,
+      productName: product.name,
+      productPrice: this.formatMoney(product.price),
+      productDescription: product.description,
+      productCategory: product.category?.name,
+    });
+  }
+
+  async notifySellerProductRejected(
+    productId: string,
+    rejectionReason: string,
+  ): Promise<void> {
+    const product = await this.productRepo.findOne({
+      where: { id: productId },
+    });
+
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    if (!product.seller?.email) {
+      return;
+    }
+
+    await this.emailService.sendProductRejectedEmail({
+      sellerEmail: product.seller.email,
+      sellerName: product.seller.fullName,
+      productName: product.name,
+      productPrice: this.formatMoney(product.price),
+      productDescription: product.description,
+      productCategory: product.category?.name,
+      rejectionReason,
+    });
+  }
+
+  private buildAdminDashboardUrl(productId: string): string {
+    const baseUrl = process.env.ADMIN_DASHBOARD_URL ?? '';
+    const normalizedBaseUrl = baseUrl.replace(/\/$/, '');
+
+    if (normalizedBaseUrl) {
+      return `${normalizedBaseUrl}/products/${encodeURIComponent(productId)}`;
+    }
+
+    return `/admin/dashboard/products/${encodeURIComponent(productId)}`;
+  }
+
+  private formatMoney(value: number): string {
+    return new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency: 'NGN',
+      maximumFractionDigits: 2,
+    }).format(Number(value));
   }
 }

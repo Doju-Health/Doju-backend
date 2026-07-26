@@ -50,6 +50,9 @@ export class Product {
   @Column({ default: false })
   isApproved: boolean;
 
+  @Column('text', { nullable: true })
+  rejectionReason?: string | null;
+
   @Column('decimal', { precision: 3, scale: 2, default: 0 })
   averageRating: number;
 

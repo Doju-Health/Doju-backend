@@ -197,6 +197,142 @@ export class EmailService {
     });
   }
 
+  /**
+   * Send admin notification that a seller submitted a new product for review
+   */
+  async sendProductReviewNotificationEmail(params: {
+    adminEmail: string;
+    adminName?: string;
+    productName: string;
+    productPrice: string;
+    productDescription: string;
+    productCategory?: string;
+    productStock?: number;
+    productSize?: string;
+    sellerName: string;
+    sellerEmail: string;
+    sellerCompanyName?: string;
+    productCreatedAt: string;
+    adminDashboardUrl: string;
+  }): Promise<void> {
+    const html = nunjucks.render('admin-product-review.njk', {
+      adminName: params.adminName || 'there',
+      productName: params.productName,
+      productPrice: params.productPrice,
+      productDescription: params.productDescription,
+      productCategory: params.productCategory || 'N/A',
+      productStock:
+        params.productStock !== undefined ? params.productStock : 'N/A',
+      productSize: params.productSize || 'N/A',
+      sellerName: params.sellerName,
+      sellerEmail: params.sellerEmail,
+      sellerCompanyName: params.sellerCompanyName || 'N/A',
+      productCreatedAt: params.productCreatedAt,
+      adminDashboardUrl: params.adminDashboardUrl,
+    });
+
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: params.adminEmail,
+      subject: `New product awaiting review: ${params.productName}`,
+      html,
+    });
+  }
+
+  /**
+   * Send seller notification that a newly created product is pending review
+   */
+  async sendProductPendingReviewEmail(params: {
+    sellerEmail: string;
+    sellerName?: string;
+    productName: string;
+    productPrice: string;
+    productDescription: string;
+    productCategory?: string;
+    productStock?: number;
+    productSize?: string;
+    adminDashboardUrl?: string;
+  }): Promise<void> {
+    const html = nunjucks.render('seller-product-pending-review.njk', {
+      sellerName: params.sellerName || 'there',
+      productName: params.productName,
+      productPrice: params.productPrice,
+      productDescription: params.productDescription,
+      productCategory: params.productCategory || 'N/A',
+      productStock:
+        params.productStock !== undefined ? params.productStock : 'N/A',
+      productSize: params.productSize || 'N/A',
+      adminDashboardUrl: params.adminDashboardUrl,
+    });
+
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: params.sellerEmail,
+      subject: `Your product is pending review: ${params.productName}`,
+      html,
+    });
+  }
+
+  /**
+   * Send seller notification that a product has been approved
+   */
+  async sendProductApprovedEmail(params: {
+    sellerEmail: string;
+    sellerName?: string;
+    productName: string;
+    productPrice: string;
+    productDescription: string;
+    productCategory?: string;
+    adminDashboardUrl?: string;
+  }): Promise<void> {
+    const html = nunjucks.render('seller-product-approved.njk', {
+      sellerName: params.sellerName || 'there',
+      productName: params.productName,
+      productPrice: params.productPrice,
+      productDescription: params.productDescription,
+      productCategory: params.productCategory || 'N/A',
+      adminDashboardUrl: params.adminDashboardUrl,
+    });
+
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: params.sellerEmail,
+      subject: `Your product has been approved: ${params.productName}`,
+      html,
+    });
+  }
+
+  /**
+   * Send seller notification that a product has been rejected
+   */
+  async sendProductRejectedEmail(params: {
+    sellerEmail: string;
+    sellerName?: string;
+    productName: string;
+    productPrice: string;
+    productDescription: string;
+    productCategory?: string;
+    rejectionReason: string;
+    adminDashboardUrl?: string;
+  }): Promise<void> {
+    const html = nunjucks.render('seller-product-rejected.njk', {
+      sellerName: params.sellerName || 'there',
+      productName: params.productName,
+      productPrice: params.productPrice,
+      productDescription: params.productDescription,
+      productCategory: params.productCategory || 'N/A',
+      rejectionReason: params.rejectionReason,
+      adminDashboardUrl: params.adminDashboardUrl,
+    });
+
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: params.sellerEmail,
+      subject: `Your product was rejected: ${params.productName}`,
+      html,
+    });
+  }
+
   private getFromAddress(): string {
     return process.env.RESEND_FROM_EMAIL || this.defaultFrom;
   }

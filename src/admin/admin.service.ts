@@ -4,6 +4,7 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -23,6 +24,8 @@ import { VerificationStatus } from 'src/users/enums/user.enum';
 
 @Injectable()
 export class AdminService {
+  private readonly logger = new Logger(AdminService.name);
+
   constructor(
     @InjectRepository(User)
     private userRepo: Repository<User>,
@@ -659,9 +662,59 @@ export class AdminService {
     }
 
     product.isApproved = true;
+    product.rejectionReason = null;
     await this.productRepo.save(product);
 
+    void this.emailService.sendProductApprovedEmail({
+      sellerEmail: product.seller.email,
+      sellerName: product.seller.fullName,
+      productName: product.name,
+      productPrice: this.formatMoney(product.price),
+      productDescription: product.description,
+      productCategory: product.category?.name,
+    }).catch((error) => {
+      this.logger.error(
+        `Failed to send approval email for product ${product.id}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    });
+
     return { message: 'Product approved successfully' };
+  }
+
+  async rejectProduct(id: string, reason: string) {
+    const trimmedReason = reason.trim();
+
+    if (!trimmedReason) {
+      throw new BadRequestException('Rejection reason is required');
+    }
+
+    const product = await this.productRepo.findOne({ where: { id } });
+
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    product.isApproved = false;
+    product.rejectionReason = trimmedReason;
+    await this.productRepo.save(product);
+
+    void this.emailService.sendProductRejectedEmail({
+      sellerEmail: product.seller.email,
+      sellerName: product.seller.fullName,
+      productName: product.name,
+      productPrice: this.formatMoney(product.price),
+      productDescription: product.description,
+      productCategory: product.category?.name,
+      rejectionReason: trimmedReason,
+    }).catch((error) => {
+      this.logger.error(
+        `Failed to send rejection email for product ${product.id}`,
+        error instanceof Error ? error.stack : String(error),
+      );
+    });
+
+    return { message: 'Product rejected successfully' };
   }
 
   async getSellerProducts({
@@ -835,6 +888,14 @@ export class AdminService {
         failed: failedTransactions,
       },
     };
+  }
+
+  private formatMoney(value: number): string {
+    return new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency: 'NGN',
+      maximumFractionDigits: 2,
+    }).format(Number(value));
   }
 
   async getRevenue(sellerId?: string): Promise<number> {

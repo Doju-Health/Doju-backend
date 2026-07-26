@@ -101,6 +101,13 @@ export class ProductResponseDto {
   isApproved: boolean;
 
   @ApiProperty({
+    example: 'Images were too blurry to verify the product',
+    description: 'Reason provided when the product is rejected',
+    nullable: true,
+  })
+  rejectionReason?: string | null;
+
+  @ApiProperty({
     example: 4.8,
     description: 'Average rating for the product',
   })

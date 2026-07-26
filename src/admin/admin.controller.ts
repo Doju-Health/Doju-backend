@@ -42,6 +42,7 @@ import { CreateAdminAccountDto } from './dto/create-admin-account.dto';
 import { InviteAdminDto } from './dto/invite-admin.dto';
 import { CompleteAdminRegistrationDto } from './dto/complete-admin-registration.dto';
 import { RejectSellerDto } from './dto/reject-seller.dto';
+import { RejectProductDto } from './dto/reject-product.dto';
 
 @ApiTags('Admin')
 @ApiBearerAuth()
@@ -431,6 +432,27 @@ export class AdminController {
   @ApiForbiddenResponse({ description: 'User does not have admin role' })
   approveProduct(@Param('id') id: string) {
     return this.adminService.approveProduct(id);
+  }
+
+  @Patch('products/:id/reject')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Reject product (admin only)' })
+  @ApiParam({
+    name: 'id',
+    description: 'Product unique identifier (UUID)',
+    example: '123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiBody({ type: RejectProductDto })
+  @ApiOkResponse({ description: 'Product rejected successfully' })
+  @ApiNotFoundResponse({ description: 'Product not found' })
+  @ApiBadRequestResponse({
+    description: 'Product rejection reason is invalid or missing',
+  })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT token' })
+  @ApiForbiddenResponse({ description: 'User does not have admin role' })
+  rejectProduct(@Param('id') id: string, @Body() dto: RejectProductDto) {
+    return this.adminService.rejectProduct(id, dto.reason);
   }
 
   @Get('sellers/:id/products')
