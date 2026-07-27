@@ -333,6 +333,39 @@ export class EmailService {
     });
   }
 
+  /**
+   * Send admin notification that a seller KYC review is pending
+   */
+  async sendSellerKycPendingReviewEmail(params: {
+    adminEmail: string;
+    adminName?: string;
+    sellerName: string;
+    sellerEmail: string;
+    companyName?: string;
+    businessAddress?: string;
+    businessCity?: string;
+    businessState?: string;
+    dashboardUrl: string;
+  }): Promise<void> {
+    const html = nunjucks.render('seller-kyc-pending-review.njk', {
+      adminName: params.adminName || 'there',
+      sellerName: params.sellerName,
+      sellerEmail: params.sellerEmail,
+      companyName: params.companyName || 'N/A',
+      businessAddress: params.businessAddress || 'N/A',
+      businessCity: params.businessCity || 'N/A',
+      businessState: params.businessState || 'N/A',
+      dashboardUrl: params.dashboardUrl,
+    });
+
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: params.adminEmail,
+      subject: `Seller KYC pending review: ${params.sellerName}`,
+      html,
+    });
+  }
+
   private getFromAddress(): string {
     return process.env.RESEND_FROM_EMAIL || this.defaultFrom;
   }
