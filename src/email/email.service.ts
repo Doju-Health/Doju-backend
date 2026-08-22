@@ -30,7 +30,7 @@ export class EmailService {
     const html = nunjucks.render('email-verification.njk', {
       fullName,
       otp,
-      expiryTime: '10 minutes',
+      expiryTime: '5 minutes',
     });
 
     await this.resend.emails.send({
@@ -49,7 +49,6 @@ export class EmailService {
     otp: string,
     fullName: string,
   ): Promise<void> {
-
     const html = nunjucks.render('password-reset.njk', {
       fullName,
       otp,

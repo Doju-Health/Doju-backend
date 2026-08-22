@@ -65,11 +65,14 @@ export class AuthController {
         message:
           'Registration successful. Please check your email for the OTP.',
         email: 'john@example.com',
-        otpExpiresIn: '10 minutes',
+        otpExpiresIn: '5 minutes',
       },
     },
   })
-  @ApiBadRequestResponse({ description: 'Email already registered' })
+  @ApiBadRequestResponse({
+    description:
+      'An account already exists with this email and requires verification or login',
+  })
   async register(@Body() registerDto: RegisterDto) {
     return this.authService.register(registerDto);
   }
@@ -187,7 +190,9 @@ export class AuthController {
       },
     },
   })
-  @ApiBadRequestResponse({ description: 'Invalid or expired OTP' })
+  @ApiBadRequestResponse({
+    description: 'The OTP is incorrect or has expired',
+  })
   async verifyEmail(@Body() body: { email: string; otp: string }) {
     if (!body.email || !body.otp) {
       throw new BadRequestException('Email and OTP are required');
@@ -213,7 +218,7 @@ export class AuthController {
     schema: {
       example: {
         message: 'Verification OTP sent to your email',
-        otpExpiresIn: '10 minutes',
+        otpExpiresIn: '5 minutes',
       },
     },
   })

@@ -3,7 +3,7 @@ import {
   BadRequestException,
   UnauthorizedException,
   NotFoundException,
-  Logger
+  Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -15,13 +15,14 @@ import { User } from '../users/entities/user.entity';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { EmailService } from '../email/email.service';
-import { UserRole, VerificationStatus } from 'src/users/enums/user.enum';
+import { UserRole, VerificationStatus } from '../users/enums/user.enum';
 
+const EMAIL_VERIFICATION_OTP_EXPIRY_MS = 5 * 60 * 1000;
+const EMAIL_VERIFICATION_OTP_EXPIRY_LABEL = '5 minutes';
 
 @Injectable()
 export class AuthService {
-
- private readonly logger = new Logger(AuthService.name);
+  private readonly logger = new Logger(AuthService.name);
 
   constructor(
     @InjectRepository(User)
@@ -56,7 +57,15 @@ export class AuthService {
     // Check if user already exists
     const existingUser = await this.userRepo.findOne({ where: { email } });
     if (existingUser) {
-      throw new BadRequestException('Email already registered');
+      if (!existingUser.emailVerified) {
+        throw new BadRequestException(
+          'An account already exists with this email, but your email has not been verified yet',
+        );
+      }
+
+      throw new BadRequestException(
+        'An account already exists with this email. Please log in instead',
+      );
     }
 
     // Hash password
@@ -64,7 +73,9 @@ export class AuthService {
 
     // Generate OTP
     const verificationOtp = this.generateOtp();
-    const verificationOtpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const verificationOtpExpires = new Date(
+      Date.now() + EMAIL_VERIFICATION_OTP_EXPIRY_MS,
+    );
 
     // Create new user
     const user = this.userRepo.create({
@@ -91,7 +102,7 @@ export class AuthService {
     return {
       message: 'Registration successful. Please check your email for the OTP.',
       email: user.email,
-      otpExpiresIn: '10 minutes',
+      otpExpiresIn: EMAIL_VERIFICATION_OTP_EXPIRY_LABEL,
     };
   }
 
@@ -129,7 +140,9 @@ export class AuthService {
 
     // Check if email is verified
     if (!user.emailVerified) {
-      throw new UnauthorizedException('Please verify your email first');
+      throw new UnauthorizedException(
+        'An account already exists with this email, but your email has not been verified yet',
+      );
     }
 
     return this.issueTokenPair(user);
@@ -151,15 +164,19 @@ export class AuthService {
       throw new BadRequestException('No OTP found for this email');
     }
 
-    if (user.verificationOtp !== otp) {
-      throw new BadRequestException('Invalid OTP');
-    }
-
     if (
       user.verificationOtpExpires &&
       user.verificationOtpExpires < new Date()
     ) {
-      throw new BadRequestException('OTP has expired');
+      throw new BadRequestException(
+        'The email verification OTP has expired. Please request a new OTP.',
+      );
+    }
+
+    if (user.verificationOtp !== otp) {
+      throw new BadRequestException(
+        'The email verification OTP is incorrect. Please check the code and try again.',
+      );
     }
 
     user.emailVerified = true;
@@ -208,7 +225,9 @@ export class AuthService {
 
     // Generate new OTP
     const verificationOtp = this.generateOtp();
-    const verificationOtpExpires = new Date(Date.now() + 10 * 60 * 1000);
+    const verificationOtpExpires = new Date(
+      Date.now() + EMAIL_VERIFICATION_OTP_EXPIRY_MS,
+    );
 
     user.verificationOtp = verificationOtp;
     user.verificationOtpExpires = verificationOtpExpires;
@@ -224,7 +243,7 @@ export class AuthService {
 
     return {
       message: 'Verification OTP sent to your email',
-      otpExpiresIn: '10 minutes',
+      otpExpiresIn: EMAIL_VERIFICATION_OTP_EXPIRY_LABEL,
     };
   }
 
@@ -492,7 +511,9 @@ export class AuthService {
   }
 
   private getAccessTokenExpiry(): string {
-    return this.configService.get<string>('JWT_ACCESS_TOKEN_EXPIRES_IN') ?? '1d';
+    return (
+      this.configService.get<string>('JWT_ACCESS_TOKEN_EXPIRES_IN') ?? '1d'
+    );
   }
 
   private getRefreshTokenExpiry(): string {
