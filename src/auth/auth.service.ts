@@ -19,6 +19,8 @@ import { UserRole, VerificationStatus } from '../users/enums/user.enum';
 
 const EMAIL_VERIFICATION_OTP_EXPIRY_MS = 5 * 60 * 1000;
 const EMAIL_VERIFICATION_OTP_EXPIRY_LABEL = '5 minutes';
+const PASSWORD_POLICY =
+  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
 
 @Injectable()
 export class AuthService {
@@ -42,11 +44,21 @@ export class AuthService {
     return Math.floor(100000 + Math.random() * 900000).toString();
   }
 
+  private validatePassword(password: string): void {
+    if (!PASSWORD_POLICY.test(password)) {
+      throw new BadRequestException(
+        'Password must be at least 8 characters long and contain uppercase and lowercase letters, a number, and a special character',
+      );
+    }
+  }
+
   /**
    * Register a new user
    */
   async register(registerDto: RegisterDto) {
     const { email, password, fullName, role, phoneNumber } = registerDto;
+
+    this.validatePassword(password);
 
     if (role === UserRole.ADMIN || role === UserRole.SUPER_ADMIN) {
       throw new BadRequestException(
@@ -119,13 +131,13 @@ export class AuthService {
       .where('user.email = :email', { email })
       .getOne();
     if (!user) {
-      throw new NotFoundException('User not found');
+      throw new UnauthorizedException('Invalid email or password');
     }
 
     // Verify password
     const isPasswordValid = await bcrypt.compare(password, user.password || '');
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException('Invalid email or password');
     }
 
     // Verify role matches
@@ -284,6 +296,8 @@ export class AuthService {
     otp: string,
     newPassword: string,
   ): Promise<{ message: string }> {
+    this.validatePassword(newPassword);
+
     const user = await this.userRepo.findOne({ where: { email } });
 
     if (!user) {

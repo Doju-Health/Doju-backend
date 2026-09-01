@@ -41,7 +41,7 @@ export class AuthController {
         value: {
           fullName: 'John Doe',
           email: 'john@example.com',
-          password: 'SecurePass123',
+          password: 'SecurePass123!',
           role: 'buyer',
           phoneNumber: '+1234567890',
         },
@@ -51,7 +51,7 @@ export class AuthController {
         value: {
           fullName: 'Jane Smith',
           email: 'jane@example.com',
-          password: 'SecurePass123',
+          password: 'SecurePass123!',
           role: 'seller',
           phoneNumber: '+0987654321',
         },
@@ -345,13 +345,19 @@ export class AuthController {
       properties: {
         email: { type: 'string', format: 'email' },
         otp: { type: 'string', minLength: 6, maxLength: 6 },
-        newPassword: { type: 'string', minLength: 8 },
+        newPassword: {
+          type: 'string',
+          minLength: 8,
+          pattern: '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[^A-Za-z\\d]).+$',
+          description:
+            'At least 8 characters, including uppercase and lowercase letters, a number, and a special character',
+        },
       },
       required: ['email', 'otp', 'newPassword'],
       example: {
         email: 'john@example.com',
         otp: '123456',
-        newPassword: 'NewSecurePass123',
+        newPassword: 'NewSecurePass123!',
       },
     },
   })
