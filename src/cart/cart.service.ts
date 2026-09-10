@@ -11,6 +11,7 @@ import { User } from 'src/users/entities/user.entity';
 import { Order } from 'src/orders/entities/order.entity';
 import { OrderStatus, PaymentStatus } from 'src/orders/enums/order.enum';
 import { AddToCartDto, UpdateCartItemDto, CheckoutDto } from './dto/cart.dto';
+import { serializeProductSeller, serializeOrderSeller } from 'src/common/services/public-seller.util';
 
 @Injectable()
 export class CartService {
@@ -75,7 +76,11 @@ export class CartService {
       });
     }
 
-    return this.cartRepo.save(cartItem);
+    const savedCartItem = await this.cartRepo.save(cartItem);
+    return {
+      ...savedCartItem,
+      product: serializeProductSeller(savedCartItem.product),
+    };
   }
 
   /**
@@ -104,7 +109,10 @@ export class CartService {
     );
 
     return {
-      items,
+      items: items.map((item) => ({
+        ...item,
+        product: serializeProductSeller(item.product),
+      })),
       summary: {
         totalItems: items.length,
         selectedItems: selectedItems.length,
@@ -273,7 +281,7 @@ export class CartService {
     await this.cartRepo.remove(cartItems);
 
     return {
-      orders,
+      orders: orders.map((order) => serializeOrderSeller(order)),
       totalAmount,
       message: `Successfully created ${orders.length} order(s). Please proceed to payment.`,
     };

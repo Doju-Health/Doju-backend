@@ -8,6 +8,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Order } from 'src/orders/entities/order.entity';
 import { OrderStatus } from 'src/orders/enums/order.enum';
+import { serializeOrderSeller } from 'src/common/services/public-seller.util';
 import { OrderTracking } from './entities/tracking.entity';
 import { TrackingStatus } from './enums/tracking.enum';
 import { User } from 'src/users/entities/user.entity';
@@ -43,7 +44,13 @@ export class OrderTrackingService {
       ],
     });
 
-    return this.trackingRepo.save(tracking);
+    const savedTracking = await this.trackingRepo.save(tracking);
+    return {
+      ...savedTracking,
+      order: savedTracking.order
+        ? serializeOrderSeller(savedTracking.order)
+        : savedTracking.order,
+    };
   }
 
   /**
@@ -117,7 +124,12 @@ export class OrderTrackingService {
       throw new ForbiddenException('You do not have access to this tracking information');
     }
 
-    return tracking;
+    return {
+      ...tracking,
+      order: tracking.order
+        ? serializeOrderSeller(tracking.order)
+        : tracking.order,
+    };
   }
 
   /**
@@ -214,7 +226,13 @@ export class OrderTrackingService {
     tracking.order.deliveredAt = now;
     await this.orderRepo.save(tracking.order);
 
-    return this.trackingRepo.save(tracking);
+    const savedTracking = await this.trackingRepo.save(tracking);
+    return {
+      ...savedTracking,
+      order: savedTracking.order
+        ? serializeOrderSeller(savedTracking.order)
+        : savedTracking.order,
+    };
   }
 
   /**
@@ -235,7 +253,7 @@ export class OrderTrackingService {
    * Get all orders for buyer with tracking info
    */
   async getBuyerOrders(buyerId: string): Promise<OrderTracking[]> {
-    return this.trackingRepo
+    const trackings = await this.trackingRepo
       .createQueryBuilder('tracking')
       .leftJoinAndSelect('tracking.order', 'order')
       .leftJoinAndSelect('order.product', 'product')
@@ -243,6 +261,13 @@ export class OrderTrackingService {
       .where('order.buyerId = :buyerId', { buyerId })
       .orderBy('tracking.lastUpdated', 'DESC')
       .getMany();
+
+    return trackings.map((tracking) => ({
+      ...tracking,
+      order: tracking.order
+        ? serializeOrderSeller(tracking.order)
+        : tracking.order,
+    })) as OrderTracking[];
   }
 
   // ============= PRIVATE HELPER METHODS =============

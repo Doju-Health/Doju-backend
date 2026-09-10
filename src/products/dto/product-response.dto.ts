@@ -79,6 +79,18 @@ export class ProductResponseDto {
       id: 'user-123',
       fullName: 'John Doe',
       email: 'john@example.com',
+      phoneNumber: '+2348012345678',
+      companyName: 'Doju Medical Supplies',
+      address: '12 Adeola Odeku Street',
+      city: 'Lagos',
+      state: 'Lagos',
+      businessAddress: '12 Adeola Odeku Street',
+      businessCity: 'Lagos',
+      businessState: 'Lagos',
+      profileImageUrl: 'https://example.com/profile.jpg',
+      isActive: true,
+      createdAt: '2026-02-09T13:03:12.813Z',
+      updatedAt: '2026-07-26T17:25:59.645Z',
     },
     description: 'Seller information',
   })
@@ -86,6 +98,18 @@ export class ProductResponseDto {
     id: string;
     fullName: string;
     email: string;
+    phoneNumber?: string;
+    companyName?: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    businessAddress?: string;
+    businessCity?: string;
+    businessState?: string;
+    profileImageUrl?: string;
+    isActive: boolean;
+    createdAt: Date;
+    updatedAt: Date;
   };
 
   @ApiProperty({

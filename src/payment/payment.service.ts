@@ -19,6 +19,7 @@ import { UserRole } from 'src/users/enums/user.enum';
 import * as crypto from 'crypto';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 import { EmailService } from 'src/email/email.service';
+import { serializeOrderSeller } from 'src/common/services/public-seller.util';
 
 @Injectable()
 export class PaymentsService {
@@ -332,7 +333,12 @@ export class PaymentsService {
       .getManyAndCount();
 
     return {
-      data,
+      data: data.map((payment) => ({
+        ...payment,
+        order: payment.order
+          ? serializeOrderSeller(payment.order)
+          : payment.order,
+      })),
       meta: {
         total,
         page: safePage,
@@ -370,7 +376,19 @@ export class PaymentsService {
       throw new NotFoundException('Transaction not found');
     }
 
-    return payment;
+    if (
+      user?.role === UserRole.ADMIN ||
+      user?.role === UserRole.SUPER_ADMIN
+    ) {
+      return payment;
+    }
+
+    return {
+      ...payment,
+      order: payment.order
+        ? serializeOrderSeller(payment.order)
+        : payment.order,
+    };
   }
 
   /**
@@ -404,7 +422,12 @@ export class PaymentsService {
       }
 
       if (payment.status === PaymentStatus.PAID) {
-        return payment; // already handled, skip
+        return {
+          ...payment,
+          order: payment.order
+            ? serializeOrderSeller(payment.order)
+            : payment.order,
+        }; // already handled, skip
       }
       // Update payment record
       payment.status =
@@ -459,7 +482,12 @@ export class PaymentsService {
       }
 
       await this.paymentRepo.save(payment);
-      return payment;
+      return {
+        ...payment,
+        order: payment.order
+          ? serializeOrderSeller(payment.order)
+          : payment.order,
+      };
     } catch (error) {
       console.error(
         'Payment verification error:',

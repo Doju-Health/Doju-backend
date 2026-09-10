@@ -15,6 +15,7 @@ import { OrderStatus, PaymentStatus } from './enums/order.enum';
 import { randomUUID } from 'crypto';
 import { DeliveryZoneService } from 'src/common/services/delivery-zone.service';
 import { DeliveryRateCardService } from 'src/common/services/delivery-rate-card.service';
+import { serializeOrderSeller } from 'src/common/services/public-seller.util';
 
 @Injectable()
 export class OrdersService {
@@ -136,7 +137,7 @@ export class OrdersService {
     // Save order
     const savedOrder = await this.orderRepo.save(order);
 
-    return savedOrder;
+    return serializeOrderSeller(savedOrder);
   }
 
   async createBulk(
@@ -257,7 +258,7 @@ export class OrdersService {
         bulkDeliveryFee,
         bulkEstimatedPlatformFee,
         bulkEstimatedSellerAmount,
-        orders: createdOrders,
+        orders: createdOrders.map((order) => serializeOrderSeller(order)),
       };
     });
   }
@@ -341,7 +342,7 @@ export class OrdersService {
       .getManyAndCount();
 
     return {
-      data,
+      data: data.map((order) => serializeOrderSeller(order)),
       meta: {
         total,
         page: safePage,
@@ -374,7 +375,7 @@ export class OrdersService {
       .getManyAndCount();
 
     return {
-      data,
+      data: data.map((order) => serializeOrderSeller(order)),
       meta: {
         total,
         page: safePage,
@@ -408,7 +409,7 @@ export class OrdersService {
       .getManyAndCount();
 
     return {
-      data,
+      data: data.map((order) => serializeOrderSeller(order)),
       meta: {
         total,
         page: safePage,
@@ -428,7 +429,7 @@ export class OrdersService {
       throw new NotFoundException('Order not found');
     }
 
-    return order;
+    return serializeOrderSeller(order);
   }
 
   async findByBulkOrderId(bulkOrderId: string): Promise<{
@@ -476,7 +477,7 @@ export class OrdersService {
       bulkDeliveryFee,
       bulkEstimatedPlatformFee,
       bulkEstimatedSellerAmount,
-      orders,
+      orders: orders.map((order) => serializeOrderSeller(order)),
     };
   }
 
@@ -529,7 +530,9 @@ export class OrdersService {
     }
 
     await this.orderRepo.save(orders);
-    return isBulk ? orders : orders[0];
+    return isBulk
+      ? orders.map((order) => serializeOrderSeller(order))
+      : serializeOrderSeller(orders[0]);
   }
 
   /**
@@ -550,7 +553,9 @@ export class OrdersService {
     }
 
     await this.orderRepo.save(orders);
-    return isBulk ? orders : orders[0];
+    return isBulk
+      ? orders.map((order) => serializeOrderSeller(order))
+      : serializeOrderSeller(orders[0]);
   }
 
   /**
@@ -576,7 +581,9 @@ export class OrdersService {
     }
 
     await this.orderRepo.save(orders);
-    return isBulk ? orders : orders[0];
+    return isBulk
+      ? orders.map((order) => serializeOrderSeller(order))
+      : serializeOrderSeller(orders[0]);
   }
 
   async cancel(id: string, user: User): Promise<Order | Order[]> {
@@ -625,7 +632,9 @@ export class OrdersService {
     }
 
     await this.orderRepo.save(orders);
-    return isBulk ? orders : orders[0];
+    return isBulk
+      ? orders.map((order) => serializeOrderSeller(order))
+      : serializeOrderSeller(orders[0]);
   }
 
   private async getOrdersByIdOrBulk(id: string) {
@@ -679,7 +688,8 @@ export class OrdersService {
       }
     }
 
-    return this.orderRepo.save(order);
+    const savedOrder = await this.orderRepo.save(order);
+    return serializeOrderSeller(savedOrder);
   }
 
   async getOrdersByProduct(productId: string): Promise<Order[]> {

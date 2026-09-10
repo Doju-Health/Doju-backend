@@ -17,6 +17,7 @@ import { CloudinaryService } from 'src/common/services/cloudinary.service';
 import { VerificationStatus } from 'src/users/enums/user.enum';
 import { EmailService } from 'src/email/email.service';
 import { UserRole } from 'src/users/enums/user.enum';
+import { serializeProductSeller } from 'src/common/services/public-seller.util';
 
 @Injectable()
 export class ProductsService {
@@ -38,8 +39,10 @@ export class ProductsService {
     seller: User,
     files?: Express.Multer.File[],
   ) {
-    if (seller.isVerified !== VerificationStatus.VERIFIED 
-      && seller.isVerified !== VerificationStatus.PENDING) {
+    if (
+      seller.isVerified !== VerificationStatus.VERIFIED &&
+      seller.isVerified !== VerificationStatus.PENDING
+    ) {
       throw new ForbiddenException('Seller account is not verified');
     }
 
@@ -87,7 +90,7 @@ export class ProductsService {
       );
     });
 
-    return savedProduct;
+    return serializeProductSeller(savedProduct);
   }
 
   async findAll({
@@ -119,7 +122,7 @@ export class ProductsService {
       .getManyAndCount();
 
     return {
-      data,
+      data: data.map((product) => serializeProductSeller(product)),
       meta: {
         total,
         page: safePage,
@@ -159,7 +162,7 @@ export class ProductsService {
       .getManyAndCount();
 
     return {
-      data,
+      data: data.map((product) => serializeProductSeller(product)),
       meta: {
         total,
         page: safePage,
@@ -170,9 +173,11 @@ export class ProductsService {
   }
 
   async findBySeller(sellerId: string) {
-    return this.productRepo.find({
+    const products = await this.productRepo.find({
       where: { seller: { id: sellerId }, isActive: true },
     });
+
+    return products.map((product) => serializeProductSeller(product));
   }
 
   async findOne(id: string) {
@@ -184,7 +189,7 @@ export class ProductsService {
       throw new NotFoundException('Product not found');
     }
 
-    return product;
+    return serializeProductSeller(product);
   }
 
   async update(
@@ -208,7 +213,8 @@ export class ProductsService {
     }
 
     Object.assign(product, { ...dto, imageUrl });
-    return this.productRepo.save(product);
+    const savedProduct = await this.productRepo.save(product);
+    return serializeProductSeller(savedProduct);
   }
 
   async remove(id: string, user: User) {
