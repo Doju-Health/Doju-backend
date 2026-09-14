@@ -196,6 +196,107 @@ export class EmailService {
     });
   }
 
+  async sendBuyerOrderCreatedEmail(params: {
+    buyerEmail: string;
+    buyerName?: string;
+    orderId: string;
+    items: Array<{
+      productName: string;
+      quantity: number;
+      productPrice: string;
+    }>;
+    totalAmountPayable: string;
+    deliveryAddress?: string;
+    deliveryCity?: string;
+    deliveryState?: string;
+    pickupStore?: string;
+    estimatedDeliveryDays?: string;
+    paymentUrl: string;
+  }): Promise<void> {
+    const html = nunjucks.render('buyer-order-created.njk', {
+      buyerName: params.buyerName || 'there',
+      orderId: params.orderId,
+      items: params.items,
+      totalAmountPayable: params.totalAmountPayable,
+      deliveryAddress: params.deliveryAddress,
+      deliveryCity: params.deliveryCity,
+      deliveryState: params.deliveryState,
+      pickupStore: params.pickupStore,
+      estimatedDeliveryDays: params.estimatedDeliveryDays,
+      paymentUrl: params.paymentUrl,
+    });
+
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: params.buyerEmail,
+      subject: 'Complete Your DOJU Order Payment',
+      html,
+    });
+  }
+
+  async sendBuyerPaymentConfirmationEmail(params: {
+    buyerEmail: string;
+    buyerName?: string;
+    orderId: string;
+    items: Array<{
+      productName: string;
+      quantity: number;
+      productPrice: string;
+    }>;
+    amountPaid: string;
+    paymentDate: string;
+    estimatedDeliveryDate: string;
+    pickupStore?: string;
+    trackingUrl: string;
+  }): Promise<void> {
+    const html = nunjucks.render('buyer-payment-confirmation.njk', {
+      buyerName: params.buyerName || 'there',
+      orderId: params.orderId,
+      items: params.items,
+      amountPaid: params.amountPaid,
+      paymentDate: params.paymentDate,
+      estimatedDeliveryDate: params.estimatedDeliveryDate,
+      pickupStore: params.pickupStore,
+      trackingUrl: params.trackingUrl,
+    });
+
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: params.buyerEmail,
+      subject: 'Payment Confirmed - DOJU Order',
+      html,
+    });
+  }
+
+  async sendBuyerOrderShippedEmail(params: {
+    buyerEmail: string;
+    buyerName?: string;
+    orderId: string;
+    items: Array<{
+      productName: string;
+      quantity: number;
+    }>;
+    trackingNumber?: string;
+    shippedAt: string;
+    trackingUrl: string;
+  }): Promise<void> {
+    const html = nunjucks.render('buyer-order-shipped.njk', {
+      buyerName: params.buyerName || 'there',
+      orderId: params.orderId,
+      items: params.items,
+      trackingNumber: params.trackingNumber,
+      shippedAt: params.shippedAt,
+      trackingUrl: params.trackingUrl,
+    });
+
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: params.buyerEmail,
+      subject: 'Your DOJU Order Has Shipped',
+      html,
+    });
+  }
+
   /**
    * Send admin notification that a seller submitted a new product for review
    */

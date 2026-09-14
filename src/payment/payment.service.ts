@@ -5,7 +5,7 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Brackets, IsNull } from 'typeorm';
+import { EntityManager, Repository, Brackets, IsNull } from 'typeorm';
 import { Payment } from './entities/payment.entity';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
@@ -127,7 +127,9 @@ export class PaymentsService {
     const deliveryFee = Number(order.deliveryFee ?? 0);
     const productAmount = Number(order.totalPrice) - deliveryFee;
     const estimatedPlatformFee = Math.floor(productAmount * 0.12);
-    const estimatedSellerAmount = Math.floor(productAmount - estimatedPlatformFee);
+    const estimatedSellerAmount = Math.floor(
+      productAmount - estimatedPlatformFee,
+    );
 
     const reference = this.generateReference();
 
@@ -376,10 +378,7 @@ export class PaymentsService {
       throw new NotFoundException('Transaction not found');
     }
 
-    if (
-      user?.role === UserRole.ADMIN ||
-      user?.role === UserRole.SUPER_ADMIN
-    ) {
+    if (user?.role === UserRole.ADMIN || user?.role === UserRole.SUPER_ADMIN) {
       return payment;
     }
 
@@ -442,6 +441,7 @@ export class PaymentsService {
         payment.escrowHeldAt = new Date();
 
         const bulkOrderId = meta?.bulkOrderId;
+        let ordersToNotify: Order[];
 
         if (bulkOrderId) {
           const bulkOrders = await this.orderRepo.find({
@@ -457,31 +457,53 @@ export class PaymentsService {
             order.transactionId = tx_ref;
           }
 
-          await this.orderRepo.save(bulkOrders);
+          await this.paymentRepo.manager.transaction(async (manager) => {
+            for (const order of bulkOrders) {
+              await this.decrementProductStock(
+                manager,
+                order.product.id,
+                order.quantity,
+                order.product.name,
+              );
+            }
+
+            await manager.save(Order, bulkOrders);
+            await manager.save(Payment, payment);
+          });
+          ordersToNotify = bulkOrders;
         } else {
           payment.order.paymentStatus = PaymentStatus.PAID;
           payment.order.orderStatus = OrderStatus.CONFIRMED;
           payment.order.transactionId = tx_ref;
 
-          await this.orderRepo.save(payment.order);
-        }
+          await this.paymentRepo.manager.transaction(async (manager) => {
+            await this.decrementProductStock(
+              manager,
+              payment.order.product.id,
+              payment.order.quantity,
+              payment.order.product.name,
+            );
 
-        const ordersToNotify = bulkOrderId
-          ? await this.orderRepo.find({
-              where: { bulkOrderId },
-              relations: ['buyer', 'product', 'product.seller'],
-              order: { createdAt: 'DESC' },
-            })
-          : [payment.order];
+            await manager.save(Order, payment.order);
+            await manager.save(Payment, payment);
+          });
+          ordersToNotify = [payment.order];
+        }
 
         await this.notifySellerPurchaseEmails(
           ordersToNotify,
           payment.paidAt ?? new Date(),
           tx_ref,
         );
+        await this.notifyBuyerPaymentConfirmation(
+          ordersToNotify,
+          payment.paidAt ?? new Date(),
+        );
       }
 
-      await this.paymentRepo.save(payment);
+      if (status !== 'successful') {
+        await this.paymentRepo.save(payment);
+      }
       return {
         ...payment,
         order: payment.order
@@ -494,6 +516,28 @@ export class PaymentsService {
         error.response?.data || error.message,
       );
       throw new InternalServerErrorException('Failed to verify payment');
+    }
+  }
+
+  private async decrementProductStock(
+    manager: EntityManager,
+    productId: string,
+    quantity: number,
+    productName: string,
+  ): Promise<void> {
+    const result = await manager
+      .createQueryBuilder()
+      .update(Product)
+      .set({ stock: () => 'stock - :quantity' })
+      .where('id = :productId', { productId })
+      .andWhere('stock >= :quantity', { quantity })
+      .setParameters({ quantity })
+      .execute();
+
+    if (result.affected !== 1) {
+      throw new BadRequestException(
+        `Insufficient stock for "${productName}". Requested: ${quantity}`,
+      );
     }
   }
 
@@ -562,7 +606,8 @@ export class PaymentsService {
           return;
         }
 
-        const buyerName = order.buyer?.fullName || order.buyer?.email || 'Buyer';
+        const buyerName =
+          order.buyer?.fullName || order.buyer?.email || 'Buyer';
         const buyerLocation = this.formatBuyerLocation(order);
         const expectedDeliveryDate = this.formatExpectedDeliveryDate(
           order,
@@ -590,14 +635,67 @@ export class PaymentsService {
           orderDetailsUrl,
         });
       })
-      .map((task) => task.catch((error) => {
-        console.error(
-          'Seller purchase email failed:',
-          error?.message || error,
-        );
-      }));
+      .map((task) =>
+        task.catch((error) => {
+          console.error(
+            'Seller purchase email failed:',
+            error?.message || error,
+          );
+        }),
+      );
 
     await Promise.all(notifications);
+  }
+
+  private async notifyBuyerPaymentConfirmation(
+    orders: Order[],
+    paidAt: Date,
+  ): Promise<void> {
+    const buyer = orders[0]?.buyer;
+    if (!buyer?.email) return;
+
+    try {
+      await this.emailService.sendBuyerPaymentConfirmationEmail({
+        buyerEmail: buyer.email,
+        buyerName: buyer.fullName,
+        orderId: orders[0]?.bulkOrderId || orders[0].id,
+        items: orders.map((order) => ({
+          productName: order.product?.name || 'Product',
+          quantity: order.quantity,
+          productPrice: this.formatCurrency(Number(order.unitPrice)),
+        })),
+        amountPaid: this.formatCurrency(
+          orders.reduce((total, order) => total + Number(order.totalPrice), 0),
+        ),
+        paymentDate: this.formatDateTime(paidAt),
+        estimatedDeliveryDate: orders
+          .map((order) => this.formatExpectedDeliveryDate(order, paidAt))
+          .filter((date, index, dates) => dates.indexOf(date) === index)
+          .join('; '),
+        pickupStore:
+          orders
+            .map((order) => order.pickupStore)
+            .filter(
+              (store, index, stores) =>
+                store && stores.indexOf(store) === index,
+            )
+            .join(', ') || undefined,
+        trackingUrl: this.buildBuyerOrderUrl(
+          orders[0]?.bulkOrderId || orders[0].id,
+          'track',
+        ),
+      });
+    } catch (error) {
+      console.error('Buyer payment email failed:', String(error));
+    }
+  }
+
+  private buildBuyerOrderUrl(orderId: string, action: 'pay' | 'track'): string {
+    const baseUrl =
+      action === 'pay'
+        ? 'https://dojuhealth.com/checkout'
+        : 'https://dojuhealth.com/track-order';
+    return `${baseUrl}?orderId=${encodeURIComponent(orderId)}`;
   }
 
   private buildOrderDetailsUrl(orderId: string, txRef: string): string {
@@ -739,7 +837,9 @@ export class PaymentsService {
   }
 
   private async updateProductRatings(orders: Order[], rating: number) {
-    const uniqueProductIds = [...new Set(orders.map((order) => order.product.id))];
+    const uniqueProductIds = [
+      ...new Set(orders.map((order) => order.product.id)),
+    ];
 
     for (const productId of uniqueProductIds) {
       const product = await this.productRepo.findOne({

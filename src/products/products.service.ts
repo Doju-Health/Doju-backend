@@ -19,6 +19,26 @@ import { EmailService } from 'src/email/email.service';
 import { UserRole } from 'src/users/enums/user.enum';
 import { serializeProductSeller } from 'src/common/services/public-seller.util';
 
+export type ApprovedProductSort =
+  | 'createdAt'
+  | 'name'
+  | 'priceAsc'
+  | 'priceDesc'
+  | 'rating'
+  | 'stock';
+
+export interface ApprovedProductFilters {
+  page?: number;
+  limit?: number;
+  categoryId?: string;
+  search?: string;
+  minRating?: number;
+  minPrice?: number;
+  maxPrice?: number;
+  inStock?: boolean;
+  sortBy?: ApprovedProductSort;
+}
+
 @Injectable()
 export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
@@ -136,11 +156,13 @@ export class ProductsService {
     page = 1,
     limit = 10,
     categoryId,
-  }: {
-    page?: number;
-    limit?: number;
-    categoryId?: string;
-  }) {
+    search,
+    minRating,
+    minPrice,
+    maxPrice,
+    inStock,
+    sortBy = 'createdAt',
+  }: ApprovedProductFilters) {
     const safePage = Math.max(page, 1);
     const safeLimit = Math.min(Math.max(limit, 1), 100);
 
@@ -151,12 +173,51 @@ export class ProductsService {
       .where('product.isActive = :isActive', { isActive: true })
       .andWhere('product.isApproved = :isApproved', { isApproved: true });
 
+    if (search?.trim()) {
+      queryBuilder.andWhere(
+        '(product.name ILIKE :search OR product.description ILIKE :search)',
+        { search: `%${search.trim()}%` },
+      );
+    }
+
     if (categoryId) {
       queryBuilder.andWhere('category.id = :categoryId', { categoryId });
     }
 
+    if (minRating !== undefined) {
+      queryBuilder.andWhere('product.averageRating >= :minRating', {
+        minRating,
+      });
+    }
+
+    if (minPrice !== undefined) {
+      queryBuilder.andWhere('product.price >= :minPrice', { minPrice });
+    }
+
+    if (maxPrice !== undefined) {
+      queryBuilder.andWhere('product.price <= :maxPrice', { maxPrice });
+    }
+
+    if (inStock === true) {
+      queryBuilder.andWhere('product.stock > 0');
+    } else if (inStock === false) {
+      queryBuilder.andWhere('product.stock = 0');
+    }
+
+    const sortOptions: Record<ApprovedProductSort, [string, 'ASC' | 'DESC']> = {
+      createdAt: ['product.createdAt', 'DESC'],
+      name: ['product.name', 'ASC'],
+      priceAsc: ['product.price', 'ASC'],
+      priceDesc: ['product.price', 'DESC'],
+      rating: ['product.averageRating', 'DESC'],
+      stock: ['product.stock', 'DESC'],
+    };
+    const [sortColumn, sortDirection] =
+      sortOptions[sortBy] ?? sortOptions.createdAt;
+
     const [data, total] = await queryBuilder
-      .orderBy('product.createdAt', 'DESC')
+      .orderBy(sortColumn, sortDirection)
+      .addOrderBy('product.id', 'ASC')
       .skip((safePage - 1) * safeLimit)
       .take(safeLimit)
       .getManyAndCount();

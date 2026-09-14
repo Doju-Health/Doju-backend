@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Post } from '@nestjs/common';
-import { ApiBadRequestResponse, ApiBody, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags, ApiExcludeEndpoint } from '@nestjs/swagger';
+import { ApiBadRequestResponse, ApiBody, ApiCreatedResponse, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { JoinWaitlistDto } from './dto/join-waitlist.dto';
 import { WaitlistService } from './waitlist.service';
 
@@ -9,7 +9,7 @@ export class WaitlistController {
   constructor(private readonly waitlistService: WaitlistService) {}
 
   @Get()
-  @ApiExcludeEndpoint()
+  // @ApiExcludeEndpoint()
   @ApiOperation({ summary: 'Get all waitlist entries' })
   @ApiOkResponse({
     description: 'List of waitlist entries',

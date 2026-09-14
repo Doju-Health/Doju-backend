@@ -22,6 +22,31 @@ import * as bcrypt from 'bcrypt';
 import { EmailService } from 'src/email/email.service';
 import { VerificationStatus } from 'src/users/enums/user.enum';
 
+const ADMIN_USER_SELECT = [
+  'user.id',
+  'user.fullName',
+  'user.email',
+  'user.phoneNumber',
+  'user.role',
+  'user.isSuperAdmin',
+  'user.companyName',
+  'user.address',
+  'user.businessCity',
+  'user.businessState',
+  'user.businessAddress',
+  'user.profileImageUrl',
+  'user.licenseNumber',
+  'user.kycApproved',
+  'user.kycRejectionReason',
+  'user.emailVerified',
+  'user.isVerified',
+  'user.ninUrl',
+  'user.cacUrl',
+  'user.isActive',
+  'user.createdAt',
+  'user.updatedAt',
+];
+
 @Injectable()
 export class AdminService {
   private readonly logger = new Logger(AdminService.name);
@@ -220,8 +245,7 @@ export class AdminService {
   }
 
   private buildAdminCompleteRegistrationUrl(email: string): string {
-    const baseUrl =
-    process.env.ADMIN_COMPLETE_REGISTRATION_URL ?? '';
+    const baseUrl = process.env.ADMIN_COMPLETE_REGISTRATION_URL ?? '';
 
     return `${baseUrl.replace(/\/$/, '')}/${encodeURIComponent(email)}`;
   }
@@ -250,31 +274,9 @@ export class AdminService {
     const safePage = Math.max(page, 1);
     const safeLimit = Math.min(Math.max(limit, 1), 100);
 
-    const qb = this.userRepo.createQueryBuilder('user').select([
-      'user.id',
-      'user.fullName',
-      'user.email',
-      'user.phoneNumber',
-      'user.role',
-      'user.isSuperAdmin',
-      'user.companyName',
-      'user.address',
-      'user.businessCity',
-      'user.businessState',
-      'user.businessAddress',
-      'user.profileImageUrl',
-      'user.licenseNumber',
-      'user.kycApproved',
-      'user.kycRejectionReason',
-      'user.emailVerified',
-      'user.isVerified',
-      'user.ninUrl',
-      'user.cacUrl',
-      'user.isVerified',
-      'user.isActive',
-      'user.createdAt',
-      'user.updatedAt',
-    ]);
+    const qb = this.userRepo
+      .createQueryBuilder('user')
+      .select(ADMIN_USER_SELECT);
 
     if (role) {
       qb.andWhere('user.role = :role', { role });
@@ -334,28 +336,7 @@ export class AdminService {
   ) {
     const qb = this.userRepo
       .createQueryBuilder('user')
-      .select([
-        'user.id',
-        'user.fullName',
-        'user.email',
-        'user.phoneNumber',
-        'user.role',
-        'user.isSuperAdmin',
-        'user.companyName',
-        'user.address',
-        'user.profileImageUrl',
-        'user.licenseNumber',
-        'user.kycApproved',
-        'user.kycRejectionReason',
-        'user.cacUrl',
-        'user.ninUrl',
-        // 'user.flutterwaveRecipientCode',
-        'user.emailVerified',
-        'user.isVerified',
-        'user.isActive',
-        'user.createdAt',
-        'user.updatedAt',
-      ])
+      .select(ADMIN_USER_SELECT)
       .where('user.id = :id', { id });
 
     this.applyUserFilters(qb, filters);
@@ -371,7 +352,10 @@ export class AdminService {
 
   private applyUserFilters(
     qb: {
-      andWhere: (condition: string, parameters?: Record<string, unknown>) => any;
+      andWhere: (
+        condition: string,
+        parameters?: Record<string, unknown>,
+      ) => any;
     },
     filters?: {
       companyName?: string;
@@ -668,19 +652,21 @@ export class AdminService {
     product.rejectionReason = null;
     await this.productRepo.save(product);
 
-    void this.emailService.sendProductApprovedEmail({
-      sellerEmail: product.seller.email,
-      sellerName: product.seller.fullName,
-      productName: product.name,
-      productPrice: this.formatMoney(product.price),
-      productDescription: product.description,
-      productCategory: product.category?.name,
-    }).catch((error) => {
-      this.logger.error(
-        `Failed to send approval email for product ${product.id}`,
-        error instanceof Error ? error.stack : String(error),
-      );
-    });
+    void this.emailService
+      .sendProductApprovedEmail({
+        sellerEmail: product.seller.email,
+        sellerName: product.seller.fullName,
+        productName: product.name,
+        productPrice: this.formatMoney(product.price),
+        productDescription: product.description,
+        productCategory: product.category?.name,
+      })
+      .catch((error) => {
+        this.logger.error(
+          `Failed to send approval email for product ${product.id}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      });
 
     return { message: 'Product approved successfully' };
   }
@@ -702,20 +688,22 @@ export class AdminService {
     product.rejectionReason = trimmedReason;
     await this.productRepo.save(product);
 
-    void this.emailService.sendProductRejectedEmail({
-      sellerEmail: product.seller.email,
-      sellerName: product.seller.fullName,
-      productName: product.name,
-      productPrice: this.formatMoney(product.price),
-      productDescription: product.description,
-      productCategory: product.category?.name,
-      rejectionReason: trimmedReason,
-    }).catch((error) => {
-      this.logger.error(
-        `Failed to send rejection email for product ${product.id}`,
-        error instanceof Error ? error.stack : String(error),
-      );
-    });
+    void this.emailService
+      .sendProductRejectedEmail({
+        sellerEmail: product.seller.email,
+        sellerName: product.seller.fullName,
+        productName: product.name,
+        productPrice: this.formatMoney(product.price),
+        productDescription: product.description,
+        productCategory: product.category?.name,
+        rejectionReason: trimmedReason,
+      })
+      .catch((error) => {
+        this.logger.error(
+          `Failed to send rejection email for product ${product.id}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      });
 
     return { message: 'Product rejected successfully' };
   }
@@ -768,7 +756,9 @@ export class AdminService {
           ? VerificationStatus.VERIFIED
           : isVerified === false
             ? VerificationStatus.UNVERIFIED
-            : isVerified === 'verified' || isVerified === 'pending' || isVerified === 'unverified'
+            : isVerified === 'verified' ||
+                isVerified === 'pending' ||
+                isVerified === 'unverified'
               ? isVerified
               : VerificationStatus.UNVERIFIED;
 

@@ -136,10 +136,16 @@
               <td>{{ deliveryFee }}</td>
             </tr>
             {% endif %}
-            {% if deliveryAddress %}
+            {% if pickupStore %}
             <tr>
-              <td>Delivery address</td>
-              <td>{{ deliveryAddress }}</td>
+              <td>Pickup Store</td>
+              <td>{{ pickupStore }}</td>
+            </tr>
+            {% endif %}
+            {% if deliveryFee %}
+            <tr>
+              <td>Delivery fee</td>
+              <td>{{ deliveryFee }}</td>
             </tr>
             {% endif %}
             <tr>

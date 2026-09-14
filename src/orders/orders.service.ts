@@ -5,7 +5,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { EntityManager, Repository } from 'typeorm';
 import { Order } from './entities/order.entity';
 import { Product } from 'src/products/entities/product-entity';
 import { User } from 'src/users/entities/user.entity';
@@ -16,6 +16,7 @@ import { randomUUID } from 'crypto';
 import { DeliveryZoneService } from 'src/common/services/delivery-zone.service';
 import { DeliveryRateCardService } from 'src/common/services/delivery-rate-card.service';
 import { serializeOrderSeller } from 'src/common/services/public-seller.util';
+import { EmailService } from 'src/email/email.service';
 
 @Injectable()
 export class OrdersService {
@@ -28,6 +29,7 @@ export class OrdersService {
     private productRepo: Repository<Product>,
     private deliveryZoneService: DeliveryZoneService,
     private deliveryRateCardService: DeliveryRateCardService,
+    private emailService: EmailService,
   ) {}
 
   async create(dto: CreateOrderDto, buyer: User): Promise<Order> {
@@ -134,10 +136,42 @@ export class OrdersService {
       paymentStatus: PaymentStatus.PENDING,
     });
 
-    // Save order
     const savedOrder = await this.orderRepo.save(order);
 
+    await this.notifyBuyerOrderCreated([savedOrder], buyer, savedOrder.id);
+
     return serializeOrderSeller(savedOrder);
+  }
+
+  private async notifyBuyerOrderShipped(orders: Order[]): Promise<void> {
+    const buyer = orders[0]?.buyer;
+    if (!buyer?.email || orders.length === 0) return;
+
+    const orderId = orders[0].bulkOrderId || orders[0].id;
+    const trackingNumber = orders
+      .map((order) => order.trackingNumber)
+      .filter(
+        (tracking, index, trackings) =>
+          tracking && trackings.indexOf(tracking) === index,
+      )
+      .join(', ');
+
+    try {
+      await this.emailService.sendBuyerOrderShippedEmail({
+        buyerEmail: buyer.email,
+        buyerName: buyer.fullName,
+        orderId,
+        items: orders.map((order) => ({
+          productName: order.product?.name || 'Product',
+          quantity: order.quantity,
+        })),
+        trackingNumber: trackingNumber || undefined,
+        shippedAt: this.formatDateTime(orders[0].shippedAt || new Date()),
+        trackingUrl: this.buildBuyerOrderUrl(orderId, 'track'),
+      });
+    } catch (error) {
+      console.error('Buyer shipped email failed:', String(error));
+    }
   }
 
   async createBulk(
@@ -161,7 +195,7 @@ export class OrdersService {
       throw new BadRequestException('At least one product is required');
     }
 
-    return this.orderRepo.manager.transaction(async (manager) => {
+    const result = await this.orderRepo.manager.transaction(async (manager) => {
       const createdOrders: Order[] = [];
       const orderId = `bulk-${randomUUID()}`;
       let totalPrice = 0;
@@ -261,6 +295,64 @@ export class OrdersService {
         orders: createdOrders.map((order) => serializeOrderSeller(order)),
       };
     });
+
+    await this.notifyBuyerOrderCreated(result.orders, buyer, result.orderId);
+    return result;
+  }
+
+  private async notifyBuyerOrderCreated(
+    orders: Order[],
+    buyer: User,
+    orderId: string,
+  ): Promise<void> {
+    if (!buyer.email) return;
+
+    try {
+      await this.emailService.sendBuyerOrderCreatedEmail({
+        buyerEmail: buyer.email,
+        buyerName: buyer.fullName,
+        orderId,
+        items: orders.map((order) => ({
+          productName: order.product?.name || 'Product',
+          quantity: order.quantity,
+          productPrice: this.formatCurrency(Number(order.unitPrice)),
+        })),
+        totalAmountPayable: this.formatCurrency(
+          orders.reduce((total, order) => total + Number(order.totalPrice), 0),
+        ),
+        deliveryAddress: orders[0]?.deliveryAddress,
+        deliveryCity: orders[0]?.deliveryCity,
+        deliveryState: orders[0]?.deliveryState,
+        pickupStore: orders[0]?.pickupStore,
+        estimatedDeliveryDays: orders[0]?.estimatedDeliveryDays,
+        paymentUrl: this.buildBuyerOrderUrl(orderId, 'pay'),
+      });
+    } catch (error) {
+      console.error('Buyer order email failed:', String(error));
+    }
+  }
+
+  private buildBuyerOrderUrl(orderId: string, action: 'pay' | 'track'): string {
+    const baseUrl =
+      action === 'pay'
+        ? 'https://dojuhealth.com/checkout'
+        : 'https://dojuhealth.com/track-order';
+    return `${baseUrl}?orderId=${encodeURIComponent(orderId)}`;
+  }
+
+  private formatCurrency(amount: number): string {
+    return new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency: 'NGN',
+      maximumFractionDigits: 2,
+    }).format(amount);
+  }
+
+  private formatDateTime(date: Date): string {
+    return new Intl.DateTimeFormat('en-NG', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(date);
   }
 
   private calculateDeliveryDetails(
@@ -530,6 +622,7 @@ export class OrdersService {
     }
 
     await this.orderRepo.save(orders);
+    await this.notifyBuyerOrderShipped(orders);
     return isBulk
       ? orders.map((order) => serializeOrderSeller(order))
       : serializeOrderSeller(orders[0]);
@@ -610,20 +703,24 @@ export class OrdersService {
         );
       }
 
+      const stockWasDeducted = order.paymentStatus === PaymentStatus.PAID;
+
       // If payment is already in escrow, refund will be handled by payment service
-      if (order.paymentStatus === PaymentStatus.PAID) {
+      if (stockWasDeducted) {
         // Payment service will handle the refund
         order.paymentStatus = PaymentStatus.PENDING_REFUND;
       }
 
-      // Restore product stock
-      const product = await this.productRepo.findOne({
-        where: { id: order.product.id },
-      });
+      // Restore stock only when payment already deducted it.
+      if (stockWasDeducted) {
+        const product = await this.productRepo.findOne({
+          where: { id: order.product.id },
+        });
 
-      if (product) {
-        product.stock += order.quantity;
-        await this.productRepo.save(product);
+        if (product) {
+          product.stock += order.quantity;
+          await this.productRepo.save(product);
+        }
       }
 
       // Update order status
@@ -671,24 +768,28 @@ export class OrdersService {
     }
 
     // Auto-confirm order and reduce stock when payment is successful
-    if (
+    const shouldDeductStock =
       paymentStatus === PaymentStatus.PAID &&
-      order.orderStatus === OrderStatus.PENDING
-    ) {
+      order.orderStatus === OrderStatus.PENDING;
+
+    if (shouldDeductStock) {
       order.orderStatus = OrderStatus.CONFIRMED;
-
-      // Reduce product stock now that payment is confirmed
-      const product = await this.productRepo.findOne({
-        where: { id: order.product.id },
-      });
-
-      if (product) {
-        product.stock -= order.quantity;
-        await this.productRepo.save(product);
-      }
     }
 
-    const savedOrder = await this.orderRepo.save(order);
+    const savedOrder = await this.orderRepo.manager.transaction(
+      async (manager) => {
+        if (shouldDeductStock) {
+          await this.reserveStock(
+            manager,
+            order.product.id,
+            order.quantity,
+            order.product.name,
+          );
+        }
+
+        return manager.save(Order, order);
+      },
+    );
     return serializeOrderSeller(savedOrder);
   }
 
@@ -698,6 +799,27 @@ export class OrdersService {
       relations: ['buyer'],
       order: { createdAt: 'DESC' },
     });
+  }
+
+  private async reserveStock(
+    manager: EntityManager,
+    productId: string,
+    quantity: number,
+    productName: string,
+  ): Promise<void> {
+    const result = await manager
+      .createQueryBuilder()
+      .update(Product)
+      .set({ stock: () => `stock - ${quantity}` })
+      .where('id = :productId', { productId })
+      .andWhere('stock >= :quantity', { quantity })
+      .execute();
+
+    if (result.affected !== 1) {
+      throw new BadRequestException(
+        `Insufficient stock for "${productName}". Requested: ${quantity}`,
+      );
+    }
   }
 
   async getTotalRevenue(sellerId?: string): Promise<number> {

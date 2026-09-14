@@ -32,6 +32,7 @@ import {
 } from '@nestjs/swagger';
 import type { Express } from 'express';
 import { ProductsService } from './products.service';
+import type { ApprovedProductSort } from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductResponseDto } from './dto/product-response.dto';
@@ -118,12 +119,95 @@ export class ProductsController {
     example: '123e4567-e89b-12d3-a456-426614174000',
     description: 'Filter products by category UUID',
   })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    type: String,
+    example: 'oxygen',
+  })
+  @ApiQuery({
+    name: 'sortBy',
+    required: false,
+    enum: ['createdAt', 'name', 'priceAsc', 'priceDesc', 'rating', 'stock'],
+    example: 'rating',
+    description: 'Sort approved products',
+  })
+  @ApiQuery({ name: 'minRating', required: false, type: Number, example: 4 })
+  @ApiQuery({ name: 'minPrice', required: false, type: Number, example: 1000 })
+  @ApiQuery({
+    name: 'maxPrice',
+    required: false,
+    type: Number,
+    example: 100000,
+  })
+  @ApiQuery({
+    name: 'inStock',
+    required: false,
+    type: Boolean,
+    example: true,
+    description: 'When true, only products with stock greater than zero',
+  })
   getApproved(
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
     @Query('categoryId') categoryId?: string,
+    @Query('search') search?: string,
+    @Query('sortBy') sortBy?: ApprovedProductSort,
+    @Query('minRating') minRating?: string,
+    @Query('minPrice') minPrice?: string,
+    @Query('maxPrice') maxPrice?: string,
+    @Query('inStock') inStock?: string,
   ) {
-    return this.productsService.findApproved({ page, limit, categoryId });
+    return this.productsService.findApproved({
+      page,
+      limit,
+      categoryId,
+      search,
+      sortBy,
+      minRating: minRating === undefined ? undefined : Number(minRating),
+      minPrice: minPrice === undefined ? undefined : Number(minPrice),
+      maxPrice: maxPrice === undefined ? undefined : Number(maxPrice),
+      inStock:
+        inStock === undefined ? undefined : inStock.toLowerCase() === 'true',
+    });
+  }
+
+  @Get('approved/search')
+  @ApiOperation({
+    summary: 'Search approved products',
+    description:
+      'Search approved products by name or description with the same filters and sorting as the approved products endpoint',
+  })
+  @ApiOkResponse({
+    description: 'Successfully searched approved products',
+    type: PaginatedProductsResponseDto,
+  })
+  @ApiQuery({ name: 'q', required: true, type: String, example: 'oxygen' })
+  @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 10 })
+  searchApproved(
+    @Query('q') query: string,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+    @Query('categoryId') categoryId?: string,
+    @Query('sortBy') sortBy?: ApprovedProductSort,
+    @Query('minRating') minRating?: string,
+    @Query('minPrice') minPrice?: string,
+    @Query('maxPrice') maxPrice?: string,
+    @Query('inStock') inStock?: string,
+  ) {
+    return this.productsService.findApproved({
+      page,
+      limit,
+      categoryId,
+      search: query,
+      sortBy,
+      minRating: minRating === undefined ? undefined : Number(minRating),
+      minPrice: minPrice === undefined ? undefined : Number(minPrice),
+      maxPrice: maxPrice === undefined ? undefined : Number(maxPrice),
+      inStock:
+        inStock === undefined ? undefined : inStock.toLowerCase() === 'true',
+    });
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
@@ -132,7 +216,8 @@ export class ProductsController {
   @ApiBearerAuth()
   @ApiOperation({
     summary: 'Get current seller products',
-    description: 'Retrieve all active products created by the logged-in seller.',
+    description:
+      'Retrieve all active products created by the logged-in seller.',
   })
   @ApiOkResponse({
     description: 'Successfully retrieved seller products',
@@ -202,7 +287,8 @@ export class ProductsController {
       'Create a new healthcare equipment product with optional image upload(s) to Cloudinary. Requires seller role.',
   })
   @ApiCreatedResponse({
-    description: 'Product successfully created with image uploaded to Cloudinary',
+    description:
+      'Product successfully created with image uploaded to Cloudinary',
     type: ProductResponseDto,
   })
   @ApiBadRequestResponse({
@@ -278,8 +364,7 @@ export class ProductsController {
     description: 'Missing or invalid JWT token',
   })
   @ApiForbiddenResponse({
-    description:
-      'User does not have seller role or is not the product owner',
+    description: 'User does not have seller role or is not the product owner',
   })
   @ApiNotFoundResponse({
     description: 'Product not found',
@@ -315,8 +400,7 @@ export class ProductsController {
     description: 'Missing or invalid JWT token',
   })
   @ApiForbiddenResponse({
-    description:
-      'User does not have seller role or is not the product owner',
+    description: 'User does not have seller role or is not the product owner',
   })
   @ApiNotFoundResponse({
     description: 'Product not found',
