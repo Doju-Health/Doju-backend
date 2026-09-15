@@ -45,7 +45,12 @@ export class PaymentsService {
   // Initialize payment with Flutterwave
 
   async initiatePayment(dto: InitiatePaymentDto, buyer: User) {
-    if (!dto.orderId && !dto.bulkOrderId) {
+    const requestedBulkOrderId =
+      dto.bulkOrderId ??
+      (dto.orderId?.startsWith('bulk-') ? dto.orderId : undefined);
+    const requestedOrderId = requestedBulkOrderId ? undefined : dto.orderId;
+
+    if (!requestedOrderId && !requestedBulkOrderId) {
       throw new BadRequestException('orderId or bulkOrderId is required');
     }
 
@@ -54,9 +59,9 @@ export class PaymentsService {
     let totalAmount = 0;
     let bulkOrderId: string | undefined;
 
-    if (dto.bulkOrderId) {
+    if (requestedBulkOrderId) {
       orders = await this.orderRepo.find({
-        where: { bulkOrderId: dto.bulkOrderId },
+        where: { bulkOrderId: requestedBulkOrderId },
         relations: ['buyer', 'product', 'product.seller'],
         order: { createdAt: 'DESC' },
       });
@@ -89,11 +94,11 @@ export class PaymentsService {
       }
 
       totalAmount = orders.reduce((sum, o) => sum + Number(o.totalPrice), 0);
-      bulkOrderId = dto.bulkOrderId;
+      bulkOrderId = requestedBulkOrderId;
       order = orders[0];
-    } else if (dto.orderId) {
+    } else if (requestedOrderId) {
       order = await this.orderRepo.findOne({
-        where: { id: dto.orderId },
+        where: { id: requestedOrderId },
         relations: ['buyer', 'product', 'product.seller'],
       });
 
@@ -780,9 +785,14 @@ export class PaymentsService {
     bulkOrderId?: string,
     rating?: number,
   ) {
+    const requestedBulkOrderId =
+      bulkOrderId ??
+      (orderId?.startsWith('bulk-') ? orderId : undefined);
+    const requestedOrderId = requestedBulkOrderId ? undefined : orderId;
+
     const { payment, orders } = await this.getPaymentAndOrders({
-      orderId,
-      bulkOrderId,
+      orderId: requestedOrderId,
+      bulkOrderId: requestedBulkOrderId,
     });
 
     if (!payment) {
@@ -1052,7 +1062,13 @@ export class PaymentsService {
     };
   }> {
     const balance = await this.getPayoutBalance();
-    const seller = payment.order.product.seller;
+    const seller = payment.order?.product?.seller;
+    if (!seller) {
+      throw new NotFoundException(
+        'Seller information is unavailable for this payment',
+      );
+    }
+
     const amountPaid = Number(payment.order.totalPrice);
     const deliveryFee = Number(payment.order.deliveryFee ?? 0);
     const productAmount = amountPaid - deliveryFee;
@@ -1175,6 +1191,8 @@ export class PaymentsService {
       return this.paymentRepo
         .createQueryBuilder('payment')
         .leftJoinAndSelect('payment.order', 'order')
+        .leftJoinAndSelect('order.product', 'product')
+        .leftJoinAndSelect('product.seller', 'seller')
         .leftJoinAndSelect('payment.buyer', 'buyer')
         .where('order.bulkOrderId = :bulkOrderId', { bulkOrderId })
         .getOne();
@@ -1183,7 +1201,7 @@ export class PaymentsService {
     if (orderId) {
       return this.paymentRepo.findOne({
         where: { order: { id: orderId } },
-        relations: ['order', 'buyer'],
+        relations: ['order', 'order.product', 'order.product.seller', 'buyer'],
       });
     }
 

@@ -3,6 +3,7 @@ import {
   IsString,
   IsUUID,
   IsOptional,
+  Matches,
   IsUrl,
   IsNumber,
   Min,
@@ -16,7 +17,10 @@ export class InitiatePaymentDto {
     example: '550e8400-e29b-41d4-a716-446655440000',
   })
   @IsOptional()
-  @IsUUID()
+  @Matches(
+    /^(?:bulk-)?[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    { message: 'orderId must be a UUID or bulk-<uuid>' },
+  )
   orderId?: string;
 
   @ApiPropertyOptional({
@@ -48,11 +52,14 @@ export class VerifyPaymentDto {
 
 export class ConfirmDeliveryDto {
   @ApiProperty({
-    description: 'UUID of the order that was delivered',
+    description: 'UUID of the order or bulk-<uuid> identifier that was delivered',
     example: '550e8400-e29b-41d4-a716-446655440000',
   })
   @IsOptional()
-  @IsUUID()
+  @Matches(
+    /^(?:bulk-)?[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    { message: 'orderId must be a UUID or bulk-<uuid>' },
+  )
   orderId?: string;
 
   @ApiPropertyOptional({
