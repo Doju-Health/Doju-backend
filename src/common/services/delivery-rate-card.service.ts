@@ -197,7 +197,8 @@ export class DeliveryRateCardService {
     packageSize: 'small' | 'medium' | 'large',
   ): { fee: number; estimatedDays: string } {
     const key = `${departureZone}-${arrivalZone}`;
-    const rate = this.rateCard.get(key);
+    const reverseKey = `${arrivalZone}-${departureZone}`;
+    const rate = this.rateCard.get(key) ?? this.rateCard.get(reverseKey);
 
     if (!rate) {
       throw new BadRequestException(
