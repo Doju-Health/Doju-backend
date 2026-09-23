@@ -171,6 +171,7 @@ export class EmailService {
     expectedDeliveryDate: string;
     deliveryAddress?: string;
     deliveryFee?: string;
+    pickupStore?: string;
     orderDetailsUrl: string;
   }): Promise<void> {
     const html = nunjucks.render('seller-product-purchased.njk', {
@@ -185,6 +186,7 @@ export class EmailService {
       expectedDeliveryDate: params.expectedDeliveryDate,
       deliveryAddress: params.deliveryAddress,
       deliveryFee: params.deliveryFee,
+      pickupStore: params.pickupStore,
       orderDetailsUrl: params.orderDetailsUrl,
     });
 

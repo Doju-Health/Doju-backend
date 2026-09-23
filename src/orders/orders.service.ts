@@ -333,11 +333,7 @@ export class OrdersService {
   }
 
   private buildBuyerOrderUrl(orderId: string, action: 'pay' | 'track'): string {
-    const baseUrl =
-      action === 'pay'
-        ? 'https://dojuhealth.com/checkout'
-        : 'https://dojuhealth.com/track-order';
-    return `${baseUrl}?orderId=${encodeURIComponent(orderId)}`;
+    return 'https://dojuhealth.com';
   }
 
   private formatCurrency(amount: number): string {

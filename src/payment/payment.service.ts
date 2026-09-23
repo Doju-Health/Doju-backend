@@ -637,6 +637,7 @@ export class PaymentsService {
             order.deliveryFee !== undefined && order.deliveryFee !== null
               ? this.formatCurrency(Number(order.deliveryFee))
               : undefined,
+          pickupStore: order.pickupStore || undefined,
           orderDetailsUrl,
         });
       })
@@ -696,23 +697,11 @@ export class PaymentsService {
   }
 
   private buildBuyerOrderUrl(orderId: string, action: 'pay' | 'track'): string {
-    const baseUrl =
-      action === 'pay'
-        ? 'https://dojuhealth.com/checkout'
-        : 'https://dojuhealth.com/track-order';
-    return `${baseUrl}?orderId=${encodeURIComponent(orderId)}`;
+    return 'https://dojuhealth.com';
   }
 
   private buildOrderDetailsUrl(orderId: string, txRef: string): string {
-    const frontendUrl = process.env.FRONTEND_URL ?? '';
-    const baseUrl = frontendUrl.replace(/\/$/, '');
-    const route = `/seller/orders/${encodeURIComponent(orderId)}`;
-
-    if (!baseUrl) {
-      return `/seller/orders/${encodeURIComponent(orderId)}?reference=${encodeURIComponent(txRef)}`;
-    }
-
-    return `${baseUrl}${route}?reference=${encodeURIComponent(txRef)}`;
+    return 'https://dojuhealth.com';
   }
 
   private formatBuyerLocation(order: Order): string {
@@ -786,8 +775,7 @@ export class PaymentsService {
     rating?: number,
   ) {
     const requestedBulkOrderId =
-      bulkOrderId ??
-      (orderId?.startsWith('bulk-') ? orderId : undefined);
+      bulkOrderId ?? (orderId?.startsWith('bulk-') ? orderId : undefined);
     const requestedOrderId = requestedBulkOrderId ? undefined : orderId;
 
     const { payment, orders } = await this.getPaymentAndOrders({
