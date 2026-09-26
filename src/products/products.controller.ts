@@ -12,6 +12,7 @@ import {
   Query,
   DefaultValuePipe,
   ParseIntPipe,
+  BadRequestException,
 } from '@nestjs/common';
 import { FilesInterceptor } from '@nestjs/platform-express';
 import {
@@ -32,7 +33,11 @@ import {
 } from '@nestjs/swagger';
 import type { Express } from 'express';
 import { ProductsService } from './products.service';
-import type { ApprovedProductSort } from './products.service';
+import type {
+  ApprovedProductSort,
+  SellerProductStatus,
+  SellerStockStatus,
+} from './products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { ProductResponseDto } from './dto/product-response.dto';
@@ -43,6 +48,23 @@ import { Roles } from 'src/common/decorators/roles.decorator';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import { UserRole } from 'src/users/enums/user.enum';
 import { User } from 'src/users/entities/user.entity';
+
+function parseOptionalPrice(value: string | undefined, name: string) {
+  if (value === undefined) {
+    return undefined;
+  }
+
+  if (!value.trim()) {
+    throw new BadRequestException(`${name} must be a valid number`);
+  }
+
+  const parsedValue = Number(value);
+  if (!Number.isFinite(parsedValue)) {
+    throw new BadRequestException(`${name} must be a valid number`);
+  }
+
+  return parsedValue;
+}
 
 @ApiTags('Products')
 @Controller('products')
@@ -217,11 +239,44 @@ export class ProductsController {
   @ApiOperation({
     summary: 'Get current seller products',
     description:
-      'Retrieve all active products created by the logged-in seller.',
+      'Retrieve the logged-in seller products with filtering, sorting, and pagination.',
   })
   @ApiOkResponse({
     description: 'Successfully retrieved seller products',
-    type: [ProductResponseDto],
+    type: PaginatedProductsResponseDto,
+  })
+  @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 10 })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    type: String,
+    example: 'oxygen',
+  })
+  @ApiQuery({ name: 'categoryId', required: false, type: String })
+  @ApiQuery({
+    name: 'status',
+    required: false,
+    enum: ['pending', 'approved', 'rejected'],
+  })
+  @ApiQuery({
+    name: 'stockStatus',
+    required: false,
+    enum: ['inStock', 'lowStock', 'outOfStock'],
+    description: 'Low stock means fewer than 5 units.',
+  })
+  @ApiQuery({
+    name: 'isActive',
+    required: false,
+    type: Boolean,
+    description: 'Defaults to true; set false to include inactive products.',
+  })
+  @ApiQuery({ name: 'minPrice', required: false, type: Number })
+  @ApiQuery({ name: 'maxPrice', required: false, type: Number })
+  @ApiQuery({
+    name: 'sortBy',
+    required: false,
+    enum: ['createdAt', 'name', 'priceAsc', 'priceDesc', 'rating', 'stock'],
   })
   @ApiUnauthorizedResponse({
     description: 'Missing or invalid JWT token',
@@ -229,8 +284,35 @@ export class ProductsController {
   @ApiForbiddenResponse({
     description: 'User does not have seller role',
   })
-  getMyProducts(@CurrentUser() user: User) {
-    return this.productsService.findBySeller(user.id);
+  getMyProducts(
+    @CurrentUser() user: User,
+    @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
+    @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+    @Query('categoryId') categoryId?: string,
+    @Query('search') search?: string,
+    @Query('status') status?: SellerProductStatus,
+    @Query('stockStatus') stockStatus?: SellerStockStatus,
+    @Query('isActive') isActive?: string,
+    @Query('minPrice') minPrice?: string,
+    @Query('maxPrice') maxPrice?: string,
+    @Query('sortBy') sortBy?: ApprovedProductSort,
+  ) {
+    if (isActive !== undefined && !['true', 'false'].includes(isActive)) {
+      throw new BadRequestException('isActive must be true or false');
+    }
+
+    return this.productsService.findBySeller(user.id, {
+      page,
+      limit,
+      categoryId,
+      search,
+      status,
+      stockStatus,
+      isActive: isActive === undefined ? undefined : isActive === 'true',
+      minPrice: parseOptionalPrice(minPrice, 'minPrice'),
+      maxPrice: parseOptionalPrice(maxPrice, 'maxPrice'),
+      sortBy,
+    });
   }
 
   @Get(':id')

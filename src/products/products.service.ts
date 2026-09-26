@@ -39,6 +39,22 @@ export interface ApprovedProductFilters {
   sortBy?: ApprovedProductSort;
 }
 
+export type SellerProductStatus = 'pending' | 'approved' | 'rejected';
+export type SellerStockStatus = 'inStock' | 'lowStock' | 'outOfStock';
+
+export interface SellerProductFilters {
+  page?: number;
+  limit?: number;
+  categoryId?: string;
+  search?: string;
+  status?: SellerProductStatus;
+  stockStatus?: SellerStockStatus;
+  isActive?: boolean;
+  minPrice?: number;
+  maxPrice?: number;
+  sortBy?: ApprovedProductSort;
+}
+
 @Injectable()
 export class ProductsService {
   private readonly logger = new Logger(ProductsService.name);
@@ -233,12 +249,111 @@ export class ProductsService {
     };
   }
 
-  async findBySeller(sellerId: string) {
-    const products = await this.productRepo.find({
-      where: { seller: { id: sellerId }, isActive: true },
-    });
+  async findBySeller(
+    sellerId: string,
+    {
+      page = 1,
+      limit = 10,
+      categoryId,
+      search,
+      status,
+      stockStatus,
+      isActive = true,
+      minPrice,
+      maxPrice,
+      sortBy = 'createdAt',
+    }: SellerProductFilters = {},
+  ) {
+    const safePage = Math.max(page, 1);
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+    const queryBuilder = this.productRepo
+      .createQueryBuilder('product')
+      .leftJoinAndSelect('product.category', 'category')
+      .leftJoinAndSelect('product.seller', 'seller')
+      .where('product.sellerId = :sellerId', { sellerId });
 
-    return products.map((product) => serializeProductSeller(product));
+    if (isActive !== undefined) {
+      queryBuilder.andWhere('product.isActive = :isActive', { isActive });
+    }
+
+    if (categoryId) {
+      queryBuilder.andWhere('category.id = :categoryId', { categoryId });
+    }
+
+    if (search?.trim()) {
+      queryBuilder.andWhere(
+        '(product.name ILIKE :search OR product.description ILIKE :search)',
+        { search: `%${search.trim()}%` },
+      );
+    }
+
+    if (status === 'approved') {
+      queryBuilder.andWhere('product.isApproved = :isApproved', {
+        isApproved: true,
+      });
+    } else if (status === 'pending') {
+      queryBuilder
+        .andWhere('product.isApproved = :isApproved', { isApproved: false })
+        .andWhere('product.rejectionReason IS NULL');
+    } else if (status === 'rejected') {
+      queryBuilder.andWhere('product.rejectionReason IS NOT NULL');
+    } else if (status !== undefined) {
+      throw new BadRequestException('Invalid product status filter');
+    }
+
+    if (stockStatus === 'inStock') {
+      queryBuilder.andWhere('product.stock > 0');
+    } else if (stockStatus === 'lowStock') {
+      queryBuilder.andWhere('product.stock > 0 AND product.stock < 5');
+    } else if (stockStatus === 'outOfStock') {
+      queryBuilder.andWhere('product.stock = 0');
+    } else if (stockStatus !== undefined) {
+      throw new BadRequestException('Invalid stock status filter');
+    }
+
+    if (minPrice !== undefined) {
+      queryBuilder.andWhere('product.price >= :minPrice', { minPrice });
+    }
+
+    if (maxPrice !== undefined) {
+      queryBuilder.andWhere('product.price <= :maxPrice', { maxPrice });
+    }
+
+    if (
+      minPrice !== undefined &&
+      maxPrice !== undefined &&
+      minPrice > maxPrice
+    ) {
+      throw new BadRequestException('minPrice cannot be greater than maxPrice');
+    }
+
+    const sortOptions: Record<ApprovedProductSort, [string, 'ASC' | 'DESC']> = {
+      createdAt: ['product.createdAt', 'DESC'],
+      name: ['product.name', 'ASC'],
+      priceAsc: ['product.price', 'ASC'],
+      priceDesc: ['product.price', 'DESC'],
+      rating: ['product.averageRating', 'DESC'],
+      stock: ['product.stock', 'DESC'],
+    };
+    const [sortColumn, sortDirection] =
+      sortOptions[sortBy] ?? sortOptions.createdAt;
+
+    const [data, total] = await queryBuilder
+      .orderBy(sortColumn, sortDirection)
+      .addOrderBy('product.id', 'ASC')
+      .skip((safePage - 1) * safeLimit)
+      .take(safeLimit)
+      .getManyAndCount();
+
+    return {
+      data: data.map((product) => serializeProductSeller(product)),
+      meta: {
+        total,
+        page: safePage,
+        limit: safeLimit,
+        totalPages: Math.ceil(total / safeLimit),
+      },
+    };
   }
 
   async findOne(id: string) {

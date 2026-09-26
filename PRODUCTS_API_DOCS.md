@@ -98,36 +98,57 @@ This document provides a comprehensive guide to the Products and Cloudinary endp
 
 **GET** `/products/me`
 
-**Description:** Retrieve all active products created by the logged-in seller.
+**Description:** Retrieve the logged-in seller's active products with filtering, sorting, and pagination. Inactive products can be included with `isActive=false`.
 
 **Authentication:** Bearer JWT Token (Required)
 
-**Query Parameters:** None
+**Query Parameters:**
+
+| Name          | Type    | Description                                                         |
+| ------------- | ------- | ------------------------------------------------------------------- |
+| `page`        | number  | Page number, defaults to `1`.                                       |
+| `limit`       | number  | Items per page, defaults to `10` and is capped at `100`.            |
+| `search`      | string  | Search product name and description.                                |
+| `categoryId`  | string  | Filter by category UUID.                                            |
+| `status`      | string  | `pending`, `approved`, or `rejected`.                               |
+| `stockStatus` | string  | `inStock`, `lowStock` (1-4 units), or `outOfStock`.                 |
+| `isActive`    | boolean | Defaults to `true`; use `false` to list inactive products.          |
+| `minPrice`    | number  | Minimum product price.                                              |
+| `maxPrice`    | number  | Maximum product price.                                              |
+| `sortBy`      | string  | `createdAt`, `name`, `priceAsc`, `priceDesc`, `rating`, or `stock`. |
 
 **Response:**
 
 ```json
-[
-  {
-    "id": "123e4567-e89b-12d3-a456-426614174000",
-    "name": "Portable Oxygen Concentrator",
-    "description": "High-quality portable oxygen concentrator with 2-hour battery life",
-    "price": 499.99,
-    "stock": 50,
-    "imageUrl": [
-      "https://res.cloudinary.com/doju/image/upload/v1234567890/doju/products/product-1.jpg",
-      "https://res.cloudinary.com/doju/image/upload/v1234567890/doju/products/product-2.jpg"
-    ],
-    "seller": {
-      "id": "seller-123",
-      "fullName": "John Doe",
-      "email": "john@example.com"
-    },
-    "isActive": true,
-    "createdAt": "2025-02-09T10:30:00Z",
-    "updatedAt": "2025-02-09T10:30:00Z"
+{
+  "data": [
+    {
+      "id": "123e4567-e89b-12d3-a456-426614174000",
+      "name": "Portable Oxygen Concentrator",
+      "description": "High-quality portable oxygen concentrator with 2-hour battery life",
+      "price": 499.99,
+      "stock": 50,
+      "imageUrl": [
+        "https://res.cloudinary.com/doju/image/upload/v1234567890/doju/products/product-1.jpg",
+        "https://res.cloudinary.com/doju/image/upload/v1234567890/doju/products/product-2.jpg"
+      ],
+      "seller": {
+        "id": "seller-123",
+        "fullName": "John Doe",
+        "email": "john@example.com"
+      },
+      "isActive": true,
+      "createdAt": "2025-02-09T10:30:00Z",
+      "updatedAt": "2025-02-09T10:30:00Z"
+    }
+  ],
+  "meta": {
+    "total": 1,
+    "page": 1,
+    "limit": 10,
+    "totalPages": 1
   }
-]
+}
 ```
 
 **Status Codes:**
