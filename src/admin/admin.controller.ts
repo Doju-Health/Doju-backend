@@ -11,6 +11,7 @@ import {
   Post,
   Patch,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -43,6 +44,7 @@ import { InviteAdminDto } from './dto/invite-admin.dto';
 import { CompleteAdminRegistrationDto } from './dto/complete-admin-registration.dto';
 import { RejectSellerDto } from './dto/reject-seller.dto';
 import { RejectProductDto } from './dto/reject-product.dto';
+import type { Response } from 'express';
 
 @ApiTags('Admin')
 @ApiBearerAuth()
@@ -243,6 +245,23 @@ export class AdminController {
       isVerified,
       sortBy,
     });
+  }
+
+  @Get('users/export')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Download user data as CSV (admin only)' })
+  @ApiOkResponse({ description: 'User data CSV downloaded successfully' })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT token' })
+  @ApiForbiddenResponse({ description: 'User does not have admin role' })
+  async exportUsersCsv(@Res({ passthrough: true }) response: Response) {
+    response.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    response.setHeader(
+      'Content-Disposition',
+      'attachment; filename="users-export.csv"',
+    );
+    response.setHeader('Cache-Control', 'no-store');
+    return this.adminService.exportUsersCsv();
   }
 
   @Get('users/:id')

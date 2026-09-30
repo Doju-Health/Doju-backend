@@ -326,6 +326,69 @@ export class AdminService {
     };
   }
 
+  async exportUsersCsv(): Promise<string> {
+    const users = await this.userRepo
+      .createQueryBuilder('user')
+      .select([
+        ...ADMIN_USER_SELECT,
+        'user.bankCode',
+        'user.accountNumber',
+        'user.accountName',
+      ])
+      .orderBy('user.createdAt', 'DESC')
+      .getMany();
+
+    const columns: Array<{ header: string; key: keyof User }> = [
+      { header: 'id', key: 'id' },
+      { header: 'fullName', key: 'fullName' },
+      { header: 'email', key: 'email' },
+      { header: 'phoneNumber', key: 'phoneNumber' },
+      { header: 'role', key: 'role' },
+      { header: 'isSuperAdmin', key: 'isSuperAdmin' },
+      { header: 'emailVerified', key: 'emailVerified' },
+      { header: 'isActive', key: 'isActive' },
+      { header: 'isVerified', key: 'isVerified' },
+      { header: 'kycApproved', key: 'kycApproved' },
+      { header: 'kycRejectionReason', key: 'kycRejectionReason' },
+      { header: 'companyName', key: 'companyName' },
+      { header: 'licenseNumber', key: 'licenseNumber' },
+      { header: 'ninUrl', key: 'ninUrl' },
+      { header: 'cacUrl', key: 'cacUrl' },
+      { header: 'address', key: 'address' },
+      { header: 'city', key: 'city' },
+      { header: 'state', key: 'state' },
+      { header: 'businessAddress', key: 'businessAddress' },
+      { header: 'businessCity', key: 'businessCity' },
+      { header: 'businessState', key: 'businessState' },
+      { header: 'profileImageUrl', key: 'profileImageUrl' },
+      { header: 'bankCode', key: 'bankCode' },
+      { header: 'accountNumber', key: 'accountNumber' },
+      { header: 'accountName', key: 'accountName' },
+      { header: 'createdAt', key: 'createdAt' },
+      { header: 'updatedAt', key: 'updatedAt' },
+    ];
+
+    const escapeCsv = (value: unknown): string => {
+      let text = value == null ? '' : String(value);
+
+      // Prevent spreadsheet applications from treating exported values as formulas.
+      if (/^[\s]*[=+@\-]/.test(text)) {
+        text = `'${text}`;
+      }
+
+      return `"${text.replace(/"/g, '""')}"`;
+    };
+
+    const rows = [
+      columns.map(({ header }) => escapeCsv(header)).join(','),
+      ...users.map((user) =>
+        columns.map(({ key }) => escapeCsv(user[key])).join(','),
+      ),
+    ];
+
+    return `\uFEFF${rows.join('\r\n')}`;
+  }
+
   async getUserById(
     id: string,
     filters?: {
@@ -847,7 +910,11 @@ export class AdminService {
       totalUsers,
       totalBuyers,
       totalSellers,
+      totalAdmins,
+      pendingKycSellers,
+      unverifiedKycSellers,
       totalProducts,
+      unverifiedProducts,
       totalCategories,
       totalTransactions,
       successfulTransactions,
@@ -856,7 +923,26 @@ export class AdminService {
       this.userRepo.count(),
       this.userRepo.count({ where: { role: UserRole.BUYER } }),
       this.userRepo.count({ where: { role: UserRole.SELLER } }),
+      this.userRepo.count({
+        where: [
+          { role: UserRole.ADMIN },
+          { role: UserRole.SUPER_ADMIN },
+        ],
+      }),
+      this.userRepo.count({
+        where: {
+          role: UserRole.SELLER,
+          isVerified: VerificationStatus.PENDING,
+        },
+      }),
+      this.userRepo.count({
+        where: {
+          role: UserRole.SELLER,
+          isVerified: VerificationStatus.UNVERIFIED,
+        },
+      }),
       this.productRepo.count(),
+      this.productRepo.count({ where: { isApproved: false } }),
       this.categoryRepo.count(),
       this.paymentRepo.count(),
       this.paymentRepo.count({ where: { status: PaymentStatus.PAID } }),
@@ -868,9 +954,13 @@ export class AdminService {
         total: totalUsers,
         buyers: totalBuyers,
         sellers: totalSellers,
+        admins: totalAdmins,
+        pendingKyc: pendingKycSellers,
+        unverifiedKyc: unverifiedKycSellers,
       },
       products: {
         total: totalProducts,
+        unverified: unverifiedProducts,
       },
       categories: {
         total: totalCategories,
