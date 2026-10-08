@@ -174,6 +174,29 @@ export class OrdersService {
     }
   }
 
+  private async notifyBuyerOrderDelivered(orders: Order[]): Promise<void> {
+    const buyer = orders[0]?.buyer;
+    if (!buyer?.email || orders.length === 0) return;
+
+    const orderId = orders[0].bulkOrderId || orders[0].id;
+    try {
+      await this.emailService.sendBuyerOrderDeliveredEmail({
+        buyerEmail: buyer.email,
+        buyerName: buyer.fullName,
+        orderId,
+        items: orders.map((order) => ({
+          productName: order.product?.name || 'Product',
+          quantity: order.quantity,
+          sellerPhoneNumber: order.product?.seller?.phoneNumber || undefined,
+        })),
+        deliveredAt: this.formatDateTime(orders[0].deliveredAt || new Date()),
+        confirmationUrl: this.buildBuyerOrderUrl(orderId, 'confirm'),
+      });
+    } catch (error) {
+      console.error('Buyer delivered email failed:', String(error));
+    }
+  }
+
   async createBulk(
     dto: CreateBulkOrdersDto,
     buyer: User,
@@ -332,7 +355,10 @@ export class OrdersService {
     }
   }
 
-  private buildBuyerOrderUrl(orderId: string, action: 'pay' | 'track'): string {
+  private buildBuyerOrderUrl(
+    orderId: string,
+    action: 'pay' | 'track' | 'confirm',
+  ): string {
     return 'https://dojuhealth.com';
   }
 
@@ -642,6 +668,7 @@ export class OrdersService {
     }
 
     await this.orderRepo.save(orders);
+    await this.notifyBuyerOrderDelivered(orders);
     return isBulk
       ? orders.map((order) => serializeOrderSeller(order))
       : serializeOrderSeller(orders[0]);

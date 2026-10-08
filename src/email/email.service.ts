@@ -162,6 +162,7 @@ export class EmailService {
     sellerEmail: string;
     sellerName?: string;
     buyerName: string;
+    buyerPhoneNumber?: string;
     buyerLocation: string;
     productName: string;
     quantity: number;
@@ -177,6 +178,7 @@ export class EmailService {
     const html = nunjucks.render('seller-product-purchased.njk', {
       sellerName: params.sellerName || 'there',
       buyerName: params.buyerName,
+      buyerPhoneNumber: params.buyerPhoneNumber,
       buyerLocation: params.buyerLocation,
       productName: params.productName,
       quantity: params.quantity,
@@ -295,6 +297,34 @@ export class EmailService {
       from: this.getFromAddress(),
       to: params.buyerEmail,
       subject: 'Your DOJU Order Has Shipped',
+      html,
+    });
+  }
+
+  async sendBuyerOrderDeliveredEmail(params: {
+    buyerEmail: string;
+    buyerName?: string;
+    orderId: string;
+    items: Array<{
+      productName: string;
+      quantity: number;
+      sellerPhoneNumber?: string;
+    }>;
+    deliveredAt: string;
+    confirmationUrl: string;
+  }): Promise<void> {
+    const html = nunjucks.render('buyer-order-delivered.njk', {
+      buyerName: params.buyerName || 'there',
+      orderId: params.orderId,
+      items: params.items,
+      deliveredAt: params.deliveredAt,
+      confirmationUrl: params.confirmationUrl,
+    });
+
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: params.buyerEmail,
+      subject: 'Your DOJU Order Has Been Delivered',
       html,
     });
   }

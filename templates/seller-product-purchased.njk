@@ -114,6 +114,12 @@
               <td>Buyer</td>
               <td>{{ buyerName }}</td>
             </tr>
+            {% if buyerPhoneNumber %}
+            <tr>
+              <td>Buyer phone</td>
+              <td>{{ buyerPhoneNumber }}</td>
+            </tr>
+            {% endif %}
             <tr>
               <td>Buyer location</td>
               <td>{{ buyerLocation }}</td>

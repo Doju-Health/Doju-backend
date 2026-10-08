@@ -625,6 +625,7 @@ export class PaymentsService {
           sellerEmail: seller.email,
           sellerName: seller.fullName,
           buyerName,
+          buyerPhoneNumber: order.buyer?.phoneNumber || undefined,
           buyerLocation,
           productName: order.product?.name || 'your product',
           quantity: order.quantity,
