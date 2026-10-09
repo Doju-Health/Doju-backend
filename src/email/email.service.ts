@@ -75,6 +75,51 @@ export class EmailService {
     });
   }
 
+  async sendApplicationReviewNotificationEmail(params: {
+    adminEmail: string;
+    adminName?: string;
+    applicantName: string;
+    applicantEmail: string;
+    applicationType: string;
+    fields: Array<{ label: string; value: string }>;
+    reviewUrl: string;
+  }): Promise<void> {
+    const html = nunjucks.render('admin-agent-ambassador-review.njk', {
+      ...params,
+      adminName: params.adminName || 'there',
+    });
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: params.adminEmail,
+      subject: `New ${params.applicationType} application awaiting review`,
+      html,
+    });
+  }
+
+  async sendAgentAmbassadorApplicationStatusEmail(params: {
+    email: string;
+    fullName?: string;
+    applicationType: string;
+    status: 'approved' | 'rejected';
+    rejectionReason?: string;
+    referralCode?: string;
+    referralLink?: string;
+  }): Promise<void> {
+    const html = nunjucks.render('agent-ambassador-application-status.njk', {
+      ...params,
+      fullName: params.fullName || 'there',
+    });
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: params.email,
+      subject:
+        params.status === 'approved'
+          ? `Your DOJU ${params.applicationType} application is approved`
+          : `Update on your DOJU ${params.applicationType} application`,
+      html,
+    });
+  }
+
   /**
    * Send welcome onboarding email after verification
    */

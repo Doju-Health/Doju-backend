@@ -815,6 +815,9 @@ export class PaymentsService {
     orders.forEach((o) => {
       o.orderStatus = OrderStatus.COMPLETED;
     });
+    if (orders.some((o) => o.id === payment.order?.id)) {
+      payment.order.orderStatus = OrderStatus.COMPLETED;
+    }
 
     await this.paymentRepo.save(payment);
     await this.orderRepo.save(orders);
@@ -1048,6 +1051,8 @@ export class PaymentsService {
       productAmount: number;
       platformFee: number;
       sellerAmount: number;
+      actualDeliveryFee: number;
+      sellerReceives: number;
     };
   }> {
     const balance = await this.getPayoutBalance();
@@ -1059,21 +1064,36 @@ export class PaymentsService {
     }
 
     const amountPaid = Number(payment.order.totalPrice);
-    const deliveryFee = Number(payment.order.deliveryFee ?? 0);
-    const productAmount = amountPaid - deliveryFee;
+    const displayDeliveryFee = Number(payment.order.deliveryFee ?? 0);
+    const platformCharges = Number(payment.order.platformCharges ?? 0);
+    const actualDeliveryFee = Math.max(0, displayDeliveryFee - platformCharges);
+    const productAmount = amountPaid - displayDeliveryFee;
     const platformFee = Math.floor(productAmount * 0.12);
     const sellerAmount = Math.floor(productAmount - platformFee);
+    const sellerReceives = sellerAmount + actualDeliveryFee;
     const breakdown = {
       amountPaid,
-      deliveryFee,
+      deliveryFee: displayDeliveryFee,
+      actualDeliveryFee,
+      platformCharges,
       productAmount,
       platformFee,
       sellerAmount,
+      sellerReceives,
     };
 
     payment.platformFee = platformFee;
-    payment.deliveryFee = deliveryFee;
+    payment.deliveryFee = actualDeliveryFee;
     payment.sellerAmount = sellerAmount;
+    payment.sellerReceives = sellerReceives;
+    payment.order.platformFee = platformFee;
+    payment.order.sellerAmount = sellerAmount;
+    payment.order.sellerReceives = sellerReceives;
+    await this.orderRepo.update(payment.order.id, {
+      platformFee,
+      sellerAmount,
+      sellerReceives,
+    });
     await this.paymentRepo.save(payment);
 
     if (!seller.bankCode || !seller.accountNumber) {
@@ -1089,9 +1109,9 @@ export class PaymentsService {
 
     console.log('[Transfer Breakdown]', breakdown);
 
-    if (balance < sellerAmount + 10) {
+    if (balance < sellerReceives + 10) {
       // +10 for transfer fee
-      const message = `Insufficient payout balance (${balance}) - queuing transfer for later. Required: ${sellerAmount + 10}`;
+      const message = `Insufficient payout balance (${balance}) - queuing transfer for later. Required: ${sellerReceives + 10}`;
       console.log(message);
       // Don't throw - cron job will retry
       return { status: 'QUEUED', message, balance, breakdown };
@@ -1106,7 +1126,7 @@ export class PaymentsService {
         {
           account_bank: seller.bankCode,
           account_number: seller.accountNumber,
-          amount: sellerAmount,
+          amount: sellerReceives,
           currency: 'NGN',
           narration: `Payout for order ${payment.order.id}`,
           reference: `PAYOUT-${payment.reference}`,
@@ -1127,11 +1147,17 @@ export class PaymentsService {
 
       payment.platformFee = platformFee;
       payment.sellerAmount = sellerAmount;
+      payment.sellerReceives = sellerReceives;
       payment.order.platformFee = platformFee;
       payment.order.sellerAmount = sellerAmount;
+      payment.order.sellerReceives = sellerReceives;
       payment.transferReference = transferRes.data.data.reference;
       payment.transferredAt = new Date();
-      await this.orderRepo.save(payment.order);
+      await this.orderRepo.update(payment.order.id, {
+        platformFee,
+        sellerAmount,
+        sellerReceives,
+      });
       await this.paymentRepo.save(payment);
 
       return {

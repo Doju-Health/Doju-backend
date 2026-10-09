@@ -5,7 +5,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, Repository } from 'typeorm';
+import { Brackets, EntityManager, Repository } from 'typeorm';
 import { Order } from './entities/order.entity';
 import { Product } from 'src/products/entities/product-entity';
 import { User } from 'src/users/entities/user.entity';
@@ -503,21 +503,107 @@ export class OrdersService {
     sellerId,
     page = 1,
     limit = 10,
+    orderId,
+    productId,
+    orderStatus,
+    paymentStatus,
+    bulkOrderId,
+    fromDate,
+    toDate,
+    search,
+    sortBy = 'createdAt',
+    sortOrder = 'DESC',
   }: {
     sellerId: string;
     page?: number;
     limit?: number;
+    orderId?: string;
+    productId?: string;
+    orderStatus?: string;
+    paymentStatus?: string;
+    bulkOrderId?: string;
+    fromDate?: string;
+    toDate?: string;
+    search?: string;
+    sortBy?: string;
+    sortOrder?: string;
   }) {
     const safePage = Math.max(page, 1);
     const safeLimit = Math.min(Math.max(limit, 1), 100);
+    const validOrderStatuses = Object.values(OrderStatus) as string[];
+    const validPaymentStatuses = Object.values(PaymentStatus) as string[];
 
-    const [data, total] = await this.orderRepo
+    if (orderStatus && !validOrderStatuses.includes(orderStatus)) {
+      throw new BadRequestException(`Invalid orderStatus: ${orderStatus}`);
+    }
+    if (paymentStatus && !validPaymentStatuses.includes(paymentStatus)) {
+      throw new BadRequestException(`Invalid paymentStatus: ${paymentStatus}`);
+    }
+
+    const parsedFromDate = fromDate ? new Date(fromDate) : undefined;
+    const parsedToDate = toDate ? new Date(toDate) : undefined;
+    if (parsedFromDate && Number.isNaN(parsedFromDate.getTime())) {
+      throw new BadRequestException('fromDate must be a valid date');
+    }
+    if (parsedToDate && Number.isNaN(parsedToDate.getTime())) {
+      throw new BadRequestException('toDate must be a valid date');
+    }
+    if (parsedToDate && /^\d{4}-\d{2}-\d{2}$/.test(toDate ?? '')) {
+      parsedToDate.setHours(23, 59, 59, 999);
+    }
+    if (parsedFromDate && parsedToDate && parsedFromDate > parsedToDate) {
+      throw new BadRequestException('fromDate must be before or equal to toDate');
+    }
+
+    const sortableColumns: Record<string, string> = {
+      createdAt: 'order.createdAt',
+      updatedAt: 'order.updatedAt',
+      totalPrice: 'order.totalPrice',
+      orderStatus: 'order.orderStatus',
+      paymentStatus: 'order.paymentStatus',
+    };
+    if (!sortableColumns[sortBy]) {
+      throw new BadRequestException(
+        `sortBy must be one of: ${Object.keys(sortableColumns).join(', ')}`,
+      );
+    }
+    const safeSortOrder = sortOrder.toUpperCase();
+    if (!['ASC', 'DESC'].includes(safeSortOrder)) {
+      throw new BadRequestException('sortOrder must be ASC or DESC');
+    }
+
+    const query = this.orderRepo
       .createQueryBuilder('order')
       .leftJoinAndSelect('order.buyer', 'buyer')
       .leftJoinAndSelect('order.product', 'product')
       .leftJoinAndSelect('product.seller', 'seller')
-      .where('product.sellerId = :sellerId', { sellerId })
-      .orderBy('order.createdAt', 'DESC')
+      .where('product.sellerId = :sellerId', { sellerId });
+
+    if (orderId) query.andWhere('order.id = :orderId', { orderId });
+    if (productId) query.andWhere('product.id = :productId', { productId });
+    if (orderStatus) query.andWhere('order.orderStatus = :orderStatus', { orderStatus });
+    if (paymentStatus) query.andWhere('order.paymentStatus = :paymentStatus', { paymentStatus });
+    if (bulkOrderId) query.andWhere('order.bulkOrderId = :bulkOrderId', { bulkOrderId });
+    if (parsedFromDate) {
+      query.andWhere('order.createdAt >= :fromDate', { fromDate: parsedFromDate });
+    }
+    if (parsedToDate) {
+      query.andWhere('order.createdAt <= :toDate', { toDate: parsedToDate });
+    }
+    if (search?.trim()) {
+      query.andWhere(
+        new Brackets((qb) => {
+          qb.where('CAST(order.id AS text) ILIKE :search', { search: `%${search.trim()}%` })
+            .orWhere('product.name ILIKE :search', { search: `%${search.trim()}%` })
+            .orWhere('order.trackingNumber ILIKE :search', { search: `%${search.trim()}%` })
+            .orWhere('buyer.fullName ILIKE :search', { search: `%${search.trim()}%` })
+            .orWhere('buyer.email ILIKE :search', { search: `%${search.trim()}%` });
+        }),
+      );
+    }
+
+    const [data, total] = await query
+      .orderBy(sortableColumns[sortBy], safeSortOrder as 'ASC' | 'DESC')
       .skip((safePage - 1) * safeLimit)
       .take(safeLimit)
       .getManyAndCount();

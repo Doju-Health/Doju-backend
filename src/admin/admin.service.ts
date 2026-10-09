@@ -21,6 +21,9 @@ import { CompleteAdminRegistrationDto } from './dto/complete-admin-registration.
 import * as bcrypt from 'bcrypt';
 import { EmailService } from 'src/email/email.service';
 import { VerificationStatus } from 'src/users/enums/user.enum';
+import { Agent } from 'src/agents/entities/agent.entity';
+import { Ambassador } from 'src/ambassadors/entities/ambassador.entity';
+import { randomBytes } from 'crypto';
 
 const ADMIN_USER_SELECT = [
   'user.id',
@@ -62,6 +65,10 @@ export class AdminService {
     private categoryRepo: Repository<ProductCategory>,
     @InjectRepository(Payment)
     private paymentRepo: Repository<Payment>,
+    @InjectRepository(Agent)
+    private agentRepo: Repository<Agent>,
+    @InjectRepository(Ambassador)
+    private ambassadorRepo: Repository<Ambassador>,
     private emailService: EmailService,
   ) {}
 
@@ -677,6 +684,133 @@ export class AdminService {
     );
 
     return { message: 'Seller rejected successfully' };
+  }
+
+  async approveAgentApplication(id: number) {
+    const agent = await this.agentRepo.findOne({ where: { id } });
+    if (!agent) throw new NotFoundException('Agent application not found');
+    if (agent.status !== 'pending') {
+      throw new BadRequestException('Agent application is not pending');
+    }
+
+    const referralCode = `DOJU-AGT-${randomBytes(5).toString('hex').toUpperCase()}`;
+    agent.status = 'approved';
+    agent.referralCode = referralCode;
+    agent.referralLink = this.buildReferralLink(referralCode);
+    await this.agentRepo.save(agent);
+    this.notifyApplicationStatus({
+      email: agent.email,
+      fullName: agent.fullName,
+      applicationType: 'Agent',
+      status: 'approved',
+      referralCode: agent.referralCode,
+      referralLink: agent.referralLink,
+    });
+    return {
+      message: 'Agent application approved successfully',
+      referralCode: agent.referralCode,
+      referralLink: agent.referralLink,
+    };
+  }
+
+  async rejectAgentApplication(id: number, reason: string) {
+    const agent = await this.agentRepo.findOne({ where: { id } });
+    if (!agent) throw new NotFoundException('Agent application not found');
+    if (agent.status !== 'pending') {
+      throw new BadRequestException('Agent application is not pending');
+    }
+    const rejectionReason = reason.trim();
+    if (!rejectionReason) {
+      throw new BadRequestException('Rejection reason is required');
+    }
+    agent.status = 'rejected';
+    await this.agentRepo.save(agent);
+    this.notifyApplicationStatus({
+      email: agent.email,
+      fullName: agent.fullName,
+      applicationType: 'Agent',
+      status: 'rejected',
+      rejectionReason,
+    });
+    return { message: 'Agent application rejected successfully' };
+  }
+
+  async approveAmbassadorApplication(id: string) {
+    const ambassador = await this.ambassadorRepo.findOne({ where: { id } });
+    if (!ambassador) {
+      throw new NotFoundException('Ambassador application not found');
+    }
+    if (ambassador.status !== 'pending') {
+      throw new BadRequestException('Ambassador application is not pending');
+    }
+
+    const referralCode = `DOJU-AMB-${randomBytes(5).toString('hex').toUpperCase()}`;
+    ambassador.status = 'approved';
+    ambassador.referralCode = referralCode;
+    ambassador.referralLink = this.buildReferralLink(referralCode);
+    await this.ambassadorRepo.save(ambassador);
+    this.notifyApplicationStatus({
+      email: ambassador.email,
+      fullName: ambassador.fullName,
+      applicationType: 'Student ambassador',
+      status: 'approved',
+      referralCode: ambassador.referralCode,
+      referralLink: ambassador.referralLink,
+    });
+    return {
+      message: 'Ambassador application approved successfully',
+      referralCode: ambassador.referralCode,
+      referralLink: ambassador.referralLink,
+    };
+  }
+
+  async rejectAmbassadorApplication(id: string, reason: string) {
+    const ambassador = await this.ambassadorRepo.findOne({ where: { id } });
+    if (!ambassador) {
+      throw new NotFoundException('Ambassador application not found');
+    }
+    if (ambassador.status !== 'pending') {
+      throw new BadRequestException('Ambassador application is not pending');
+    }
+    const rejectionReason = reason.trim();
+    if (!rejectionReason) {
+      throw new BadRequestException('Rejection reason is required');
+    }
+    ambassador.status = 'rejected';
+    await this.ambassadorRepo.save(ambassador);
+    this.notifyApplicationStatus({
+      email: ambassador.email,
+      fullName: ambassador.fullName,
+      applicationType: 'Student ambassador',
+      status: 'rejected',
+      rejectionReason,
+    });
+    return { message: 'Ambassador application rejected successfully' };
+  }
+
+  private buildReferralLink(referralCode: string): string {
+    const baseUrl = (process.env.FRONTEND_URL || 'https://dojuhealth.com')
+      .replace(/\/$/, '');
+    return `${baseUrl}/?referralCode=${encodeURIComponent(referralCode)}`;
+  }
+
+  private notifyApplicationStatus(params: {
+    email: string;
+    fullName: string;
+    applicationType: string;
+    status: 'approved' | 'rejected';
+    rejectionReason?: string;
+    referralCode?: string;
+    referralLink?: string;
+  }): void {
+    void this.emailService
+      .sendAgentAmbassadorApplicationStatusEmail(params)
+      .catch((error) => {
+        this.logger.error(
+          `Failed to send ${params.status} ${params.applicationType} application email`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      });
   }
 
   // async approveSellerKyc(id: string) {

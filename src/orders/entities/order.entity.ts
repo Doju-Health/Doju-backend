@@ -91,6 +91,9 @@ export class Order {
   sellerAmount?: number | null;
 
   @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  sellerReceives?: number | null;
+
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
   estimatedPlatformFee?: number | null;
 
   @Column('decimal', { precision: 10, scale: 2, nullable: true })

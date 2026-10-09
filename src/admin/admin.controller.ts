@@ -474,6 +474,52 @@ export class AdminController {
     return this.adminService.rejectProduct(id, dto.reason);
   }
 
+  @Patch('agents/:id/approve-agent-application')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Approve an agent application and create its referral code' })
+  @ApiParam({ name: 'id', description: 'Agent application ID', example: 1 })
+  @ApiOkResponse({ description: 'Application approved; referral code and link returned' })
+  approveAgentApplication(@Param('id', ParseIntPipe) id: number) {
+    return this.adminService.approveAgentApplication(id);
+  }
+
+  @Patch('agents/:id/reject-agent-application')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Reject an agent application' })
+  @ApiParam({ name: 'id', description: 'Agent application ID', example: 1 })
+  @ApiBody({ type: RejectProductDto })
+  rejectAgentApplication(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: RejectProductDto,
+  ) {
+    return this.adminService.rejectAgentApplication(id, dto.reason);
+  }
+
+  @Patch('ambassadors/:id/approve-amb-application')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Approve a student ambassador application and create its referral code' })
+  @ApiParam({ name: 'id', description: 'Ambassador application UUID' })
+  @ApiOkResponse({ description: 'Application approved; referral code and link returned' })
+  approveAmbassadorApplication(@Param('id') id: string) {
+    return this.adminService.approveAmbassadorApplication(id);
+  }
+
+  @Patch('ambassadors/:id/reject-amb-application')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Reject a student ambassador application' })
+  @ApiParam({ name: 'id', description: 'Ambassador application UUID' })
+  @ApiBody({ type: RejectProductDto })
+  rejectAmbassadorApplication(
+    @Param('id') id: string,
+    @Body() dto: RejectProductDto,
+  ) {
+    return this.adminService.rejectAmbassadorApplication(id, dto.reason);
+  }
+
   @Get('sellers/:id/products')
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles(UserRole.ADMIN)

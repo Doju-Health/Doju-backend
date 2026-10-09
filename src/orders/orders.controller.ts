@@ -36,7 +36,7 @@ import { MarkShippedDto } from './dto/mark-shipped.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth-guard';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import { User } from 'src/users/entities/user.entity';
-import { PaymentStatus } from './enums/order.enum';
+import { OrderStatus, PaymentStatus } from './enums/order.enum';
 
 @ApiTags('Orders')
 @Controller('orders')
@@ -152,6 +152,20 @@ export class OrdersController {
     example: 10,
     description: 'Items per page (minimum 1, maximum 100)',
   })
+  @ApiQuery({ name: 'orderId', required: false, description: 'Filter by order UUID' })
+  @ApiQuery({ name: 'productId', required: false, description: 'Filter by product UUID' })
+  @ApiQuery({ name: 'orderStatus', required: false, enum: OrderStatus })
+  @ApiQuery({ name: 'paymentStatus', required: false, enum: PaymentStatus })
+  @ApiQuery({ name: 'bulkOrderId', required: false, description: 'Filter by bulk order ID' })
+  @ApiQuery({ name: 'fromDate', required: false, description: 'Filter orders created on or after this ISO date' })
+  @ApiQuery({ name: 'toDate', required: false, description: 'Filter orders created on or before this ISO date' })
+  @ApiQuery({ name: 'search', required: false, description: 'Search order ID, product name, or tracking number' })
+  @ApiQuery({
+    name: 'sortBy',
+    required: false,
+    enum: ['createdAt', 'updatedAt', 'totalPrice', 'orderStatus', 'paymentStatus'],
+  })
+  @ApiQuery({ name: 'sortOrder', required: false, enum: ['ASC', 'DESC'] })
   @ApiUnauthorizedResponse({
     description: 'Missing or invalid JWT token',
   })
@@ -449,8 +463,32 @@ export class OrdersController {
     @CurrentUser() seller: User,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+    @Query('orderId') orderId?: string,
+    @Query('productId') productId?: string,
+    @Query('orderStatus') orderStatus?: string,
+    @Query('paymentStatus') paymentStatus?: string,
+    @Query('bulkOrderId') bulkOrderId?: string,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+    @Query('search') search?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortOrder') sortOrder?: string,
   ) {
-    return this.ordersService.findBySeller({ sellerId: seller.id, page, limit });
+    return this.ordersService.findBySeller({
+      sellerId: seller.id,
+      page,
+      limit,
+      orderId,
+      productId,
+      orderStatus,
+      paymentStatus,
+      bulkOrderId,
+      fromDate,
+      toDate,
+      search,
+      sortBy,
+      sortOrder,
+    });
   }
 
   @UseGuards(JwtAuthGuard)

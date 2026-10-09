@@ -93,6 +93,9 @@ export class Payment {
   sellerAmount: number | null;
 
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  sellerReceives?: number | null;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
   estimatedPlatformFee: number | null;
 
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })

@@ -77,6 +77,13 @@ export class OrderResponseDto {
   })
   sellerAmount?: number | null;
 
+  @ApiPropertyOptional({
+    example: 14600,
+    description: 'Total payout to the seller, including the actual delivery fee',
+    nullable: true,
+  })
+  sellerReceives?: number | null;
+
   @ApiProperty({
     example: 300,
     description: 'Estimated platform fee before payout settlement',
