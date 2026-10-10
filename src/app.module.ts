@@ -19,6 +19,7 @@ import { WaitlistModule } from './waitlist/waitlist.module';
 import { ReferralsModule } from './referrals/referrals.module';
 import { AgentsModule } from './agents/agents.module';
 import { AmbassadorsModule } from './ambassadors/ambassadors.module';
+import { BlogsModule } from './blogs/blogs.module';
 
 @Module({
   imports: [
@@ -59,6 +60,7 @@ import { AmbassadorsModule } from './ambassadors/ambassadors.module';
     ReferralsModule,
     AgentsModule,
     AmbassadorsModule,
+    BlogsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

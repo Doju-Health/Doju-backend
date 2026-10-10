@@ -5,7 +5,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { UserRole, VerificationStatus } from '../enums/user.enum';
+import { SellerType, UserRole, VerificationStatus } from '../enums/user.enum';
 
 @Entity({ name: 'users' })
 export class User {
@@ -30,6 +30,14 @@ export class User {
     default: UserRole.BUYER,
   })
   role: UserRole;
+
+  @Column({
+    type: 'enum',
+    enum: SellerType,
+    enumName: 'seller_type_enum',
+    nullable: true,
+  })
+  sellerType?: SellerType | null;
 
   @Column({ default: false })
   isSuperAdmin: boolean;

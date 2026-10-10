@@ -11,3 +11,9 @@ export enum VerificationStatus {
     VERIFIED = 'verified',
     REJECTED = 'rejected'
 }
+
+export enum SellerType {
+    MANUFACTURER = 'manufacturer',
+    SUPPLIER = 'supplier',
+    VENDOR = 'vendor',
+}

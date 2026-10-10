@@ -56,7 +56,7 @@ export class AuthService {
    * Register a new user
    */
   async register(registerDto: RegisterDto) {
-    const { email, password, fullName, role, phoneNumber } = registerDto;
+    const { email, password, fullName, role, phoneNumber, sellerType } = registerDto;
 
     this.validatePassword(password);
 
@@ -95,6 +95,7 @@ export class AuthService {
       password: hashedPassword,
       fullName,
       role,
+      sellerType: role === UserRole.SELLER ? sellerType : null,
       phoneNumber,
       isActive: true,
       emailVerified: false,

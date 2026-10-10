@@ -1,5 +1,5 @@
-import { IsEmail, IsIn, IsNotEmpty, IsOptional, Matches } from 'class-validator';
-import { UserRole } from 'src/users/enums/user.enum';
+import { IsEmail, IsEnum, IsIn, IsNotEmpty, IsOptional, Matches, ValidateIf } from 'class-validator';
+import { SellerType, UserRole } from 'src/users/enums/user.enum';
 
 export class RegisterDto {
     @IsNotEmpty()
@@ -15,6 +15,10 @@ export class RegisterDto {
 
     @IsIn([UserRole.BUYER, UserRole.SELLER])
     role: UserRole
+
+    @ValidateIf((dto: RegisterDto) => dto.role === UserRole.SELLER)
+    @IsEnum(SellerType)
+    sellerType?: SellerType;
 
     @IsNotEmpty()
     phoneNumber: string;
