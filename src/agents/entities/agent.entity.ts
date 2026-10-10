@@ -1,8 +1,8 @@
-import { Entity, PrimaryGeneratedColumn, Column, UpdateDateColumn } from 'typeorm';
+import { Entity, PrimaryColumn, Column, UpdateDateColumn } from 'typeorm';
 
 @Entity()
 export class Agent {
-  @PrimaryGeneratedColumn()
+  @PrimaryColumn({ type: 'int' })
   id: number;
 
   @Column()

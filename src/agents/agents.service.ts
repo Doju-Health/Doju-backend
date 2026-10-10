@@ -1,6 +1,8 @@
 import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
+import { QueryFailedError } from 'typeorm';
+import { randomInt } from 'crypto';
 import { User } from 'src/users/entities/user.entity';
 import { UserRole } from 'src/users/enums/user.enum';
 import { EmailService } from 'src/email/email.service';
@@ -40,11 +42,38 @@ export class AgentsService {
       throw new ConflictException('Agent with this email, phone, or NIN already exists');
     }
 
-    const agent = this.agentRepo.create({
-      ...createAgentDto,
-      status: 'pending',
-    });
-    const savedAgent = await this.agentRepo.save(agent);
+    let savedAgent: Agent | undefined;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const id = randomInt(10000, 100000);
+      if (await this.agentRepo.exist({ where: { id } })) continue;
+
+      const agent = this.agentRepo.create({
+        ...createAgentDto,
+        id,
+        status: 'pending',
+      });
+
+      try {
+        savedAgent = await this.agentRepo.save(agent);
+        break;
+      } catch (error) {
+        const driverError =
+          error instanceof QueryFailedError
+            ? (error.driverError as { code?: string; constraint?: string })
+            : undefined;
+        if (
+          driverError?.code === '23505' &&
+          driverError.constraint?.includes('agent_id')
+        ) {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    if (!savedAgent) {
+      throw new ConflictException('Unable to allocate a unique five-digit agent ID');
+    }
     void this.notifyAdminsAboutNewAgent(savedAgent).catch((error) => {
       this.logger.error(
         'Failed to send agent application review notification',
