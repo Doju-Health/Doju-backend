@@ -42,6 +42,13 @@ export class ProductResponseDto {
   size: 'small' | 'medium' | 'large';
 
   @ApiProperty({
+    example: 'Blue',
+    description: 'Product color',
+    nullable: true,
+  })
+  color?: string;
+
+  @ApiProperty({
     example: {
       id: 'category-123',
       name: 'Respiratory Equipment',

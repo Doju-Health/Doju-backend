@@ -35,6 +35,9 @@ export class Product {
   })
   size: 'small' | 'medium' | 'large';
 
+  @Column({ nullable: true })
+  color?: string;
+
   @Column('text', { array: true, nullable: true })
   imageUrl?: string[];
 

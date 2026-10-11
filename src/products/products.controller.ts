@@ -351,6 +351,7 @@ export class ProductsController {
         price: { type: 'number' },
         stock: { type: 'number' },
         size: { type: 'string', enum: ['small', 'medium', 'large'] },
+        color: { type: 'string', description: 'Product color' },
         categoryId: { type: 'string', format: 'uuid' },
         imageUrl: {
           type: 'array',
@@ -412,6 +413,7 @@ export class ProductsController {
         price: { type: 'number' },
         stock: { type: 'number' },
         size: { type: 'string', enum: ['small', 'medium', 'large'] },
+        color: { type: 'string', description: 'Product color' },
         categoryId: { type: 'string', format: 'uuid' },
         imageUrl: {
           type: 'array',
