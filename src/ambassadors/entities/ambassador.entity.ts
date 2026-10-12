@@ -44,8 +44,17 @@ export class Ambassador {
   @Column({ unique: true })
   studentMatricNo: string;
 
-  @Column('text')
-  idCardUrl: string;
+  @Column('text', { nullable: true })
+  idCardUrl: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  idCardPublicId: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  idCardFormat: string | null;
+
+  @Column({ type: 'varchar', nullable: true })
+  idCardResourceType: string | null;
 
   @Column({ default: 'pending' })
   status: string;

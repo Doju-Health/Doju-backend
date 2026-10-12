@@ -1,5 +1,6 @@
 import { ApiProperty } from "@nestjs/swagger";
-import { IsEmail, IsObject, IsString, IsNotEmpty, IsUrl } from "class-validator";
+import { Transform } from 'class-transformer';
+import { IsEmail, IsObject, IsString, IsNotEmpty } from "class-validator";
 
 export class CreateAgentDto {
    @ApiProperty({ example: "John Doe" })
@@ -39,6 +40,14 @@ export class CreateAgentDto {
     type: 'object',
     additionalProperties: { type: 'string' },
   })
+  @Transform(({ value }) => {
+    if (typeof value !== 'string') return value;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  })
   @IsObject()
   socialMediaHandles: Record<string, string>;
 
@@ -60,9 +69,5 @@ export class CreateAgentDto {
   @IsString()
   @IsNotEmpty()
   motivation: string;
-
-  @ApiProperty({ example: 'http://example.com/identity.jpg' })
-  @IsUrl()
-  identityDocument: string;
 
 }

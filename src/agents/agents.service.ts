@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { QueryFailedError } from 'typeorm';
@@ -9,6 +9,8 @@ import { EmailService } from 'src/email/email.service';
 import { CreateAgentDto } from './dto/create-agent.dto';
 import { UpdateAgentDto } from './dto/update-agent.dto';
 import { Agent } from './entities/agent.entity';
+import { CloudinaryService } from 'src/common/services/cloudinary.service';
+import type { Express } from 'express';
 
 @Injectable()
 export class AgentsService {
@@ -20,16 +22,22 @@ export class AgentsService {
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
     private readonly emailService: EmailService,
+    private readonly cloudinaryService: CloudinaryService,
   ) {}
 
 
-  create(createAgentDto: CreateAgentDto) {
-    return this.createAgent(createAgentDto);
+  create(createAgentDto: CreateAgentDto, document?: Express.Multer.File) {
+    return this.createAgent(createAgentDto, document);
   }
 
   private async createAgent(
     createAgentDto: CreateAgentDto,
+    document?: Express.Multer.File,
   ): Promise<Agent> {
+    if (!document) {
+      throw new BadRequestException('Identity document is required');
+    }
+
     const existing = await this.agentRepo.findOne({
       where: [
         { email: createAgentDto.email },
@@ -42,6 +50,8 @@ export class AgentsService {
       throw new ConflictException('Agent with this email, phone, or NIN already exists');
     }
 
+    const uploadedDocument =
+      await this.cloudinaryService.uploadVerificationDocument(document);
     let savedAgent: Agent | undefined;
     for (let attempt = 0; attempt < 10; attempt++) {
       const id = randomInt(10000, 100000);
@@ -49,6 +59,9 @@ export class AgentsService {
 
       const agent = this.agentRepo.create({
         ...createAgentDto,
+        identityDocument: uploadedDocument.publicId,
+        identityDocumentFormat: uploadedDocument.format,
+        identityDocumentResourceType: uploadedDocument.resourceType,
         id,
         status: 'pending',
       });
@@ -72,6 +85,10 @@ export class AgentsService {
     }
 
     if (!savedAgent) {
+      await this.cloudinaryService.deleteVerificationDocument(
+        uploadedDocument.publicId,
+        uploadedDocument.resourceType,
+      );
       throw new ConflictException('Unable to allocate a unique five-digit agent ID');
     }
     void this.notifyAdminsAboutNewAgent(savedAgent).catch((error) => {
@@ -91,14 +108,17 @@ export class AgentsService {
       ],
       select: ['id', 'fullName', 'email'],
     });
-    const fields = [
+    const fields: Array<{ label: string; value: string }> = ([
       ['Name', agent.fullName], ['Email', agent.email], ['Phone', agent.phone],
       ['State', agent.state], ['Occupation', agent.occupation],
       ['Coverage areas', agent.coverageAreas], ['Social media handles', JSON.stringify(agent.socialMediaHandles)],
       ['Promotion plan', agent.promotionPlan], ['Promotion notes', agent.promotionNotes],
       ['NIN', agent.nin], ['Motivation', agent.motivation],
       ['Identity document', agent.identityDocument],
-    ].map(([label, value]) => ({ label, value }));
+    ] as Array<[string, string | null]>).map(([label, value]) => ({
+      label,
+      value: value ?? 'Not uploaded',
+    }));
 
     await Promise.all(admins.filter((admin) => admin.email).map((admin) =>
       this.emailService.sendApplicationReviewNotificationEmail({

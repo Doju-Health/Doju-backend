@@ -1,10 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { Transform } from 'class-transformer';
 import {
   IsEmail,
   IsObject,
   IsString,
   IsNotEmpty,
-  IsUrl,
 } from 'class-validator';
 
 export class CreateAmbassadorDto {
@@ -48,6 +48,14 @@ export class CreateAmbassadorDto {
     type: 'object',
     additionalProperties: { type: 'string' },
   })
+  @Transform(({ value }) => {
+    if (typeof value !== 'string') return value;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  })
   @IsObject()
   socialMediaHandles: Record<string, string>;
 
@@ -65,7 +73,4 @@ export class CreateAmbassadorDto {
   @IsNotEmpty()
   studentMatricNo: string;
 
-  @ApiProperty({ example: 'https://example.com/student-id-card.jpg' })
-  @IsUrl()
-  idCardUrl: string;
 }

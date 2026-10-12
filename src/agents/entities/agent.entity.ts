@@ -38,8 +38,14 @@ export class Agent {
   @Column()
   coverageAreas: string;
 
-@Column()
-identityDocument: string;
+@Column({ type: 'varchar', nullable: true })
+identityDocument: string | null;
+
+@Column({ type: 'varchar', nullable: true })
+identityDocumentFormat: string | null;
+
+@Column({ type: 'varchar', nullable: true })
+identityDocumentResourceType: string | null;
 
   @Column({ default: 'pending' })
   status: string;
