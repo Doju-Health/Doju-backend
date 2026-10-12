@@ -9,18 +9,15 @@ export class CreateBlogDto {
   @MaxLength(200)
   title: string;
 
-  @ApiPropertyOptional({ maxLength: 220, example: 'choosing-the-right-medical-equipment' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(220)
-  slug?: string;
-
   @ApiPropertyOptional({ example: 'A short summary of the article.' })
   @IsOptional()
-  @ApiProperty({ example: 'Full blog article content goes here.' })
   @IsString()
   excerpt?: string;
 
+  @ApiProperty({
+    example: 'Full blog article content goes here.',
+    description: 'The complete blog post content.',
+  })
   @IsString()
   @MinLength(1)
   content: string;

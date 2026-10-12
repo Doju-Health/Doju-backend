@@ -10,7 +10,12 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
+import {
+  ApiBearerAuth,
+  ApiOkResponse,
+  ApiOperation,
+  ApiTags,
+} from '@nestjs/swagger';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth-guard';
 import { RolesGuard } from 'src/common/guards/role.guards';
 import { Roles } from 'src/common/decorators/roles.decorator';
@@ -35,12 +40,51 @@ export class BlogsController {
 
   @Get()
   @ApiOperation({ summary: 'Get published blogs with pagination' })
+  @ApiOkResponse({
+    description: 'Published blogs and pagination metadata.',
+    schema: {
+      example: {
+        data: [
+          {
+            id: '123e4567-e89b-12d3-a456-426614174000',
+            slug: 'choosing-the-right-medical-equipment',
+            title: 'Choosing the Right Medical Equipment',
+            excerpt: 'A short guide to selecting medical equipment.',
+            content: 'Full blog post content goes here.',
+            coverImageUrl: 'https://example.com/blog-cover.jpg',
+            status: 'published',
+            publishedAt: '2026-10-12T10:00:00.000Z',
+            createdAt: '2026-10-11T09:00:00.000Z',
+            updatedAt: '2026-10-12T10:00:00.000Z',
+          },
+        ],
+        meta: { page: 1, limit: 10, total: 1, totalPages: 1 },
+      },
+    },
+  })
   findAll(@Query('page') page?: string, @Query('limit') limit?: string) {
     return this.blogsService.findAll(Number(page) || 1, Number(limit) || 10);
   }
 
   @Get(':slug')
   @ApiOperation({ summary: 'Get a published blog by slug' })
+  @ApiOkResponse({
+    description: 'The published blog matching the slug.',
+    schema: {
+      example: {
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        slug: 'choosing-the-right-medical-equipment',
+        title: 'Choosing the Right Medical Equipment',
+        excerpt: 'A short guide to selecting medical equipment.',
+        content: 'Full blog post content goes here.',
+        coverImageUrl: 'https://example.com/blog-cover.jpg',
+        status: 'published',
+        publishedAt: '2026-10-12T10:00:00.000Z',
+        createdAt: '2026-10-11T09:00:00.000Z',
+        updatedAt: '2026-10-12T10:00:00.000Z',
+      },
+    },
+  })
   findOne(@Param('slug') slug: string) {
     return this.blogsService.findOneBySlug(slug);
   }

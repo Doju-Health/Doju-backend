@@ -14,7 +14,7 @@ export class BlogsService {
   constructor(@InjectRepository(Blog) private readonly blogRepo: Repository<Blog>) {}
 
   async create(dto: CreateBlogDto): Promise<Blog> {
-    const slug = this.toSlug(dto.slug || dto.title);
+    const slug = this.toSlug(dto.title);
     await this.ensureSlugAvailable(slug);
 
     const blog = this.blogRepo.create({
@@ -59,11 +59,9 @@ export class BlogsService {
     const blog = await this.blogRepo.findOne({ where: { id } });
     if (!blog) throw new NotFoundException('Blog not found');
 
-    const nextSlug = dto.slug !== undefined
-      ? this.toSlug(dto.slug)
-      : dto.title !== undefined && dto.title !== blog.title
-        ? this.toSlug(dto.title)
-        : blog.slug;
+    const nextSlug = dto.title !== undefined && dto.title !== blog.title
+      ? this.toSlug(dto.title)
+      : blog.slug;
     if (nextSlug !== blog.slug) await this.ensureSlugAvailable(nextSlug, id);
 
     const wasPublished = blog.status === BlogStatus.PUBLISHED;

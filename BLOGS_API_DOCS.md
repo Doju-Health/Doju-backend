@@ -40,9 +40,10 @@ Create and edit request fields:
 | --- | --- | --- | --- |
 | `title` | string | Yes | Blog title. |
 | `content` | string | Yes | Blog body. |
-| `slug` | string | No | Unique URL slug; generated from the title when omitted. |
 | `excerpt` | string | No | Short summary. |
 | `coverImageUrl` | string | No | Cover image URL. |
 | `status` | `draft` \| `published` | No | Defaults to `draft`. |
 
 List pagination defaults to `page=1` and `limit=10`; the maximum limit is 100. The response contains `data` and `meta` with `page`, `limit`, `total`, and `totalPages`.
+
+The slug is generated automatically from the title. It is not accepted in create or edit request bodies. If an admin changes a title, the slug is regenerated and checked for uniqueness.
