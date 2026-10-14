@@ -27,11 +27,15 @@ export class BlogsService {
   }
 
   async findAll(page = 1, limit = 10) {
+    return this.findByStatus(BlogStatus.PUBLISHED, page, limit);
+  }
+
+  async findByStatus(status: BlogStatus, page = 1, limit = 10) {
     const safePage = Math.max(1, Math.floor(Number(page) || 1));
     const safeLimit = Math.min(100, Math.max(1, Math.floor(Number(limit) || 10)));
     const [data, total] = await this.blogRepo.findAndCount({
-      where: { status: BlogStatus.PUBLISHED },
-      order: { publishedAt: 'DESC' },
+      where: { status },
+      order: { createdAt: 'DESC' },
       skip: (safePage - 1) * safeLimit,
       take: safeLimit,
     });

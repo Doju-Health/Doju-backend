@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Param,
+  ParseEnumPipe,
   ParseUUIDPipe,
   Patch,
   Post,
@@ -12,6 +13,7 @@ import {
 } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiQuery,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
@@ -23,6 +25,7 @@ import { UserRole } from 'src/users/enums/user.enum';
 import { BlogsService } from './blogs.service';
 import { CreateBlogDto } from './dto/create-blog.dto';
 import { UpdateBlogDto } from './dto/update-blog.dto';
+import { BlogStatus } from './entities/blog.entity';
 
 @ApiTags('Blogs')
 @Controller('blogs')
@@ -64,6 +67,51 @@ export class BlogsController {
   })
   findAll(@Query('page') page?: string, @Query('limit') limit?: string) {
     return this.blogsService.findAll(Number(page) || 1, Number(limit) || 10);
+  }
+
+  @Get('admin/by-status')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get blogs by status (admin only)',
+    description: 'Returns drafts or published blogs filtered by status, with pagination.',
+  })
+  @ApiQuery({ name: 'status', enum: BlogStatus, required: true })
+  @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
+  @ApiQuery({ name: 'limit', required: false, type: Number, example: 10 })
+  @ApiOkResponse({
+    description: 'Blogs matching the requested status and pagination metadata.',
+    schema: {
+      example: {
+        data: [
+          {
+            id: '123e4567-e89b-12d3-a456-426614174000',
+            slug: 'choosing-the-right-medical-equipment',
+            title: 'Choosing the Right Medical Equipment',
+            excerpt: 'A short guide to selecting medical equipment.',
+            content: 'Full blog post content goes here.',
+            coverImageUrl: 'https://example.com/blog-cover.jpg',
+            status: 'draft',
+            publishedAt: null,
+            createdAt: '2026-10-11T09:00:00.000Z',
+            updatedAt: '2026-10-11T09:00:00.000Z',
+          },
+        ],
+        meta: { page: 1, limit: 10, total: 1, totalPages: 1 },
+      },
+    },
+  })
+  findByStatus(
+    @Query('status', new ParseEnumPipe(BlogStatus)) status: BlogStatus,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.blogsService.findByStatus(
+      status,
+      Number(page) || 1,
+      Number(limit) || 10,
+    );
   }
 
   @Get(':slug')
