@@ -43,10 +43,24 @@ export class UsersController {
       properties: {
         fullName: { type: 'string' },
         phoneNumber: { type: 'string' },
-        address: { type: 'string' },
+        address: {
+          type: 'object',
+          properties: {
+            address: { type: 'string' },
+            latitude: { type: 'number' },
+            longitude: { type: 'number' },
+          },
+        },
         city: { type: 'string' },
         state: { type: 'string' },
-        businessAddress: { type: 'string' },
+        businessAddress: {
+          type: 'object',
+          properties: {
+            address: { type: 'string' },
+            latitude: { type: 'number' },
+            longitude: { type: 'number' },
+          },
+        },
         businessCity: { type: 'string' },
         businessState: { type: 'string' },
         companyName: { type: 'string' },

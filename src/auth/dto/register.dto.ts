@@ -1,5 +1,6 @@
 import { IsEmail, IsEnum, IsIn, IsNotEmpty, IsOptional, Matches, ValidateIf } from 'class-validator';
 import { SellerType, UserRole } from 'src/users/enums/user.enum';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class RegisterDto {
     @IsNotEmpty()
@@ -16,6 +17,12 @@ export class RegisterDto {
     @IsIn([UserRole.BUYER, UserRole.SELLER])
     role: UserRole
 
+    @ApiPropertyOptional({
+        enum: Object.values(SellerType),
+        description:
+            'Required when role is seller. Allowed values: manufacturer, supplier, vendor.',
+        example: SellerType.VENDOR,
+    })
     @ValidateIf((dto: RegisterDto) => dto.role === UserRole.SELLER)
     @IsEnum(SellerType)
     sellerType?: SellerType;

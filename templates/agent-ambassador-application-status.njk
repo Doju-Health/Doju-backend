@@ -21,6 +21,12 @@
         <p>Hi {{ fullName }},</p>
         {% if status == 'approved' %}
         <p>Congratulations! Your DOJU {{ applicationType }} application has been approved.</p>
+        {% if temporaryPassword %}
+        <div class="highlight">
+          <p>Your temporary dashboard login password: <span class="code">{{ temporaryPassword }}</span></p>
+        </div>
+        <p>Use your application email and this password to log in to your dashboard. Please change your password once you are settled in.</p>
+        {% endif %}
         <div class="highlight">
           <p>Your referral code: <span class="code">{{ referralCode }}</span></p>
           <p>Your referral link: <a href="{{ referralLink }}">{{ referralLink }}</a></p>

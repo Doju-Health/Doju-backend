@@ -104,6 +104,7 @@ export class EmailService {
     rejectionReason?: string;
     referralCode?: string;
     referralLink?: string;
+    temporaryPassword?: string;
   }): Promise<void> {
     const html = nunjucks.render('agent-ambassador-application-status.njk', {
       ...params,

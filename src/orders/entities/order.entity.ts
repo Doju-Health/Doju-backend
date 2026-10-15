@@ -9,7 +9,7 @@ import {
 import { User } from '../../users/entities/user.entity';
 // import { User } from 'src/users/entities/user.entity';
 import { Product } from '../../products/entities/product-entity';
-import { OrderStatus, PaymentStatus } from '../enums/order.enum';
+import { DeliveryProvider, OrderStatus, PaymentStatus } from '../enums/order.enum';
 
 @Entity('orders')
 export class Order {
@@ -31,11 +31,23 @@ export class Order {
   @Column('decimal', { precision: 10, scale: 2 })
   totalPrice: number;
 
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  chowdeckTotalPrice?: number | null;
+
+  @Column('varchar', { nullable: true })
+  deliveryProvider?: DeliveryProvider | null;
+
   @Column({ nullable: true })
   bulkOrderId?: string;
 
   @Column('decimal', { precision: 10, scale: 2, nullable: true })
   bulkDeliveryFee?: number | null;
+
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  chowdeckBulkDeliveryFee?: number | null;
+
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  chowdeckBulkTotalPrice?: number | null;
 
   @Column('decimal', { precision: 10, scale: 2, nullable: true })
   bulkEstimatedPlatformFee?: number | null;
@@ -80,6 +92,30 @@ export class Order {
 
   @Column('decimal', { precision: 10, scale: 2, nullable: true, default: 0 })
   deliveryFee?: number;
+
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  chowdeckDeliveryAmount?: number | null;
+
+  @Column('int', { nullable: true })
+  chowdeckFeeId?: number | null;
+
+  @Column('int', { nullable: true })
+  chowdeckDeliveryId?: number | null;
+
+  @Column('int', { nullable: true })
+  chowdeckDeliveryPrice?: number | null;
+
+  @Column('varchar', { nullable: true })
+  chowdeckReference?: string | null;
+
+  @Column('varchar', { nullable: true })
+  chowdeckDeliveryStatus?: string | null;
+
+  @Column('varchar', { nullable: true })
+  chowdeckTrackingUrl?: string | null;
+
+  @Column('varchar', { nullable: true })
+  chowdeckDeliveryPin?: string | null;
 
   @Column('decimal', { precision: 10, scale: 2, nullable: true, default: 0 })
   platformCharges?: number;

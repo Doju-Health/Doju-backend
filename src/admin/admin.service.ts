@@ -693,6 +693,13 @@ export class AdminService {
       throw new BadRequestException('Agent application is not pending');
     }
 
+    const temporaryPassword = await this.createApplicantLogin(
+      agent.email,
+      agent.fullName,
+      agent.phone,
+      UserRole.AGENT,
+    );
+
     const referralCode = `DOJU-AGT-${randomBytes(5).toString('hex').toUpperCase()}`;
     agent.status = 'approved';
     agent.referralCode = referralCode;
@@ -705,6 +712,7 @@ export class AdminService {
       status: 'approved',
       referralCode: agent.referralCode,
       referralLink: agent.referralLink,
+      temporaryPassword,
     });
     return {
       message: 'Agent application approved successfully',
@@ -744,6 +752,13 @@ export class AdminService {
       throw new BadRequestException('Ambassador application is not pending');
     }
 
+    const temporaryPassword = await this.createApplicantLogin(
+      ambassador.email,
+      ambassador.fullName,
+      ambassador.phone,
+      UserRole.AMBASSADOR,
+    );
+
     const referralCode = `DOJU-AMB-${randomBytes(5).toString('hex').toUpperCase()}`;
     ambassador.status = 'approved';
     ambassador.referralCode = referralCode;
@@ -756,6 +771,7 @@ export class AdminService {
       status: 'approved',
       referralCode: ambassador.referralCode,
       referralLink: ambassador.referralLink,
+      temporaryPassword,
     });
     return {
       message: 'Ambassador application approved successfully',
@@ -794,6 +810,33 @@ export class AdminService {
     return `${baseUrl}/?referralCode=${encodeURIComponent(referralCode)}`;
   }
 
+  private async createApplicantLogin(
+    email: string,
+    fullName: string,
+    phoneNumber: string,
+    role: UserRole.AGENT | UserRole.AMBASSADOR,
+  ): Promise<string> {
+    const existingUser = await this.userRepo.findOne({ where: { email } });
+    if (existingUser) {
+      throw new BadRequestException(
+        'An account with this email already exists. Use a different application email.',
+      );
+    }
+
+    const temporaryPassword = randomBytes(12).toString('base64url');
+    const user = this.userRepo.create({
+      email,
+      fullName,
+      phoneNumber,
+      role,
+      password: await bcrypt.hash(temporaryPassword, 10),
+      emailVerified: true,
+      isActive: true,
+    });
+    await this.userRepo.save(user);
+    return temporaryPassword;
+  }
+
   private notifyApplicationStatus(params: {
     email: string;
     fullName: string;
@@ -802,6 +845,7 @@ export class AdminService {
     rejectionReason?: string;
     referralCode?: string;
     referralLink?: string;
+    temporaryPassword?: string;
   }): void {
     void this.emailService
       .sendAgentAmbassadorApplicationStatusEmail(params)

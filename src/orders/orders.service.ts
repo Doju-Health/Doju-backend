@@ -1,6 +1,7 @@
 import {
   Injectable,
   BadRequestException,
+  BadGatewayException,
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common';
@@ -11,12 +12,14 @@ import { Product } from 'src/products/entities/product-entity';
 import { User } from 'src/users/entities/user.entity';
 import { CreateOrderDto, CreateBulkOrdersDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
-import { OrderStatus, PaymentStatus } from './enums/order.enum';
+import { DeliveryProvider, OrderStatus, PaymentStatus } from './enums/order.enum';
 import { randomUUID } from 'crypto';
 import { DeliveryZoneService } from 'src/common/services/delivery-zone.service';
 import { DeliveryRateCardService } from 'src/common/services/delivery-rate-card.service';
 import { serializeOrderSeller } from 'src/common/services/public-seller.util';
 import { EmailService } from 'src/email/email.service';
+import axios from 'axios';
+import { CreateChowdeckDeliveryDto } from './dto/create-chowdeck-delivery.dto';
 
 @Injectable()
 export class OrdersService {
@@ -57,6 +60,34 @@ export class OrdersService {
     // Calculate base total price
     const totalPrice = Number(product.price) * dto.quantity;
 
+    const seller = product.seller;
+    if (
+      seller.businessLatitude == null ||
+      seller.businessLongitude == null ||
+      dto.deliveryAddress?.latitude == null ||
+      dto.deliveryAddress?.longitude == null
+    ) {
+      throw new BadRequestException(
+        'Seller pickup and buyer delivery coordinates are required for Chowdeck fee calculation',
+      );
+    }
+
+    let chowdeckDeliveryAmount: number;
+    let chowdeckFeeId: number;
+    try {
+      const quote = await this.getChowdeckFeeQuote(
+        seller,
+        dto.deliveryAddress.latitude,
+        dto.deliveryAddress.longitude,
+      );
+      chowdeckDeliveryAmount = quote.deliveryAmount;
+      chowdeckFeeId = quote.feeId;
+    } catch (error) {
+      throw new BadRequestException(
+        `Chowdeck delivery calculation failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+
     // Calculate delivery fee
     let deliveryFee = 0;
     let departureZone: number | undefined;
@@ -93,7 +124,9 @@ export class OrdersService {
       const deliveryQuote = this.deliveryRateCardService.getDeliveryFee(
         departureZone,
         arrivalZone,
-        product.size as 'small' | 'medium' | 'large',
+        this.deliveryRateCardService.getPackageSizeForWeight(
+          Number(product.weight),
+        ),
       );
 
       deliveryFee = deliveryQuote.fee;
@@ -118,13 +151,16 @@ export class OrdersService {
       quantity: dto.quantity,
       unitPrice: product.price,
       totalPrice: totalPrice + displayDeliveryFee,
-      deliveryAddress: dto.deliveryAddress || buyer.address,
+      chowdeckTotalPrice: totalPrice + chowdeckDeliveryAmount + platformCharges,
+      deliveryAddress: dto.deliveryAddress.address || buyer.address,
       deliveryCity,
       pickupStore: dto.pickupStore,
       deliveryState,
       departureZone,
       arrivalZone,
       deliveryFee: displayDeliveryFee,
+      chowdeckDeliveryAmount,
+      chowdeckFeeId,
       platformCharges,
       platformFee: null as any,
       sellerAmount: null as any,
@@ -141,6 +177,172 @@ export class OrdersService {
     await this.notifyBuyerOrderCreated([savedOrder], buyer, savedOrder.id);
 
     return serializeOrderSeller(savedOrder);
+  }
+
+  async createChowdeckDelivery(
+    orderId: string,
+    dto: CreateChowdeckDeliveryDto,
+    requester: User,
+  ) {
+    const order = await this.getOrderForChowdeck(orderId, requester);
+    if (order.paymentStatus !== PaymentStatus.PAID) {
+      throw new BadRequestException('Order must be paid before creating a Chowdeck delivery');
+    }
+    if (order.deliveryProvider !== DeliveryProvider.CHOWDECK) {
+      throw new BadRequestException('Chowdeck delivery was not selected for this order');
+    }
+    if (order.chowdeckReference) {
+      return this.chowdeckDeliveryResult(order);
+    }
+    if (!order.chowdeckFeeId) {
+      throw new BadRequestException('Order has no Chowdeck fee quote. Create the order again with delivery coordinates.');
+    }
+    if (dto.fee_id !== Number(order.chowdeckFeeId)) {
+      throw new BadRequestException('fee_id does not match the Chowdeck quote saved for this order');
+    }
+
+    const apiKey = process.env.CHOWDECK_API_KEY;
+    if (!apiKey) {
+      throw new BadRequestException('Chowdeck fee service is not configured');
+    }
+
+    const reference = `DOJU-${order.id}`;
+    try {
+      const response = await axios.post(
+        'https://api.relay.chowdeck.com/relay/delivery',
+        {
+          fee_id: dto.fee_id,
+          reference,
+          item_type: dto.item_type,
+          user_action: dto.user_action,
+          source_contact: dto.source_contact,
+          destination_contact: dto.destination_contact,
+          customer_delivery_note: dto.customer_delivery_note,
+          delivery_pin: dto.delivery_pin,
+        },
+        { headers: { Authorization: `Bearer ${apiKey}` } },
+      );
+
+      const data = response.data?.data;
+      if (!data?.reference || !Number.isInteger(Number(data.id))) {
+        throw new Error('Chowdeck response did not include a delivery ID and reference');
+      }
+
+      order.chowdeckDeliveryId = Number(data.id);
+      order.chowdeckDeliveryPrice = Number(data.delivery_price ?? 0);
+      order.chowdeckReference = String(data.reference);
+      order.chowdeckDeliveryStatus = data.status ?? null;
+      order.chowdeckTrackingUrl = data.tracking_url ?? null;
+      order.chowdeckDeliveryPin = String(data.delivery_pin ?? dto.delivery_pin);
+      await this.orderRepo.save(order);
+      return this.chowdeckDeliveryResult(order, response.data?.message);
+    } catch (error) {
+      const providerResponse = axios.isAxiosError(error)
+        ? error.response?.data
+        : undefined;
+      const providerMessage =
+        providerResponse?.message ??
+        (providerResponse ? JSON.stringify(providerResponse) : undefined);
+      const message =
+        providerMessage ||
+        (error instanceof Error ? error.message : String(error));
+      throw new BadGatewayException(`Chowdeck delivery creation failed: ${message}`);
+    }
+  }
+
+  async trackChowdeckDelivery(orderId: string, requester: User) {
+    const order = await this.getOrderForChowdeck(orderId, requester);
+    if (!order.chowdeckReference) {
+      throw new NotFoundException('Chowdeck delivery has not been created for this order');
+    }
+    const apiKey = process.env.CHOWDECK_API_KEY;
+    if (!apiKey) {
+      throw new BadRequestException('Chowdeck fee service is not configured');
+    }
+
+    try {
+      const response = await axios.get(
+        `https://api.relay.chowdeck.com/relay/delivery/${encodeURIComponent(order.chowdeckReference)}`,
+        { headers: { Authorization: `Bearer ${apiKey}` } },
+      );
+      const data = response.data?.data;
+      if (data?.status) {
+        order.chowdeckDeliveryStatus = data.status;
+        await this.orderRepo.save(order);
+      }
+      return response.data;
+    } catch (error) {
+      throw new BadRequestException(
+        `Chowdeck delivery tracking failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  private async getOrderForChowdeck(orderId: string, requester: User): Promise<Order> {
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId },
+      relations: ['buyer', 'product', 'product.seller'],
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    if (order.buyer.id !== requester.id && order.product.seller.id !== requester.id) {
+      throw new ForbiddenException('You do not have access to this order');
+    }
+    return order;
+  }
+
+  private chowdeckDeliveryResult(order: Order, message = 'Delivery created successfully') {
+    return {
+      status: 'success',
+      message,
+      data: {
+        id: order.chowdeckDeliveryId,
+        reference: order.chowdeckReference,
+        delivery_price: order.chowdeckDeliveryPrice,
+        delivery_pin: Number(order.chowdeckDeliveryPin),
+        tracking_url: order.chowdeckTrackingUrl,
+        status: order.chowdeckDeliveryStatus,
+      },
+    };
+  }
+
+  private async getChowdeckFeeQuote(
+    seller: User,
+    destinationLatitude: number,
+    destinationLongitude: number,
+  ): Promise<{ deliveryAmount: number; feeId: number }> {
+    if (seller.businessLatitude == null || seller.businessLongitude == null) {
+      throw new BadRequestException(
+        `Seller ${seller.id} pickup coordinates are required for Chowdeck fee calculation`,
+      );
+    }
+    const apiKey = process.env.CHOWDECK_API_KEY;
+    if (!apiKey) throw new BadRequestException('Chowdeck fee service is not configured');
+    try {
+      const response = await axios.post(
+        'https://api.relay.chowdeck.com/relay/delivery/fee',
+        {
+          source_address: {
+            latitude: Number(seller.businessLatitude),
+            longitude: Number(seller.businessLongitude),
+          },
+          destination_address: {
+            latitude: destinationLatitude,
+            longitude: destinationLongitude,
+          },
+        },
+        { headers: { Authorization: `Bearer ${apiKey}` } },
+      );
+      const deliveryKobo = Number(response.data?.data?.delivery_amount);
+      const feeId = Number(response.data?.data?.id);
+      if (!Number.isFinite(deliveryKobo) || !Number.isInteger(feeId)) {
+        throw new Error('Chowdeck response did not contain a valid delivery_amount and id');
+      }
+      return { deliveryAmount: deliveryKobo / 100, feeId };
+    } catch (error) {
+      throw new BadRequestException(
+        `Chowdeck delivery calculation failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
   }
 
   private async notifyBuyerOrderShipped(orders: Order[]): Promise<void> {
@@ -203,7 +405,10 @@ export class OrdersService {
   ): Promise<{
     orderId: string;
     totalPrice: number;
+    chowdeckTotalPrice: number;
     bulkDeliveryFee: number;
+    chowdeckBulkDeliveryFee: number;
+    deliveryProvider: DeliveryProvider | null;
     bulkEstimatedPlatformFee: number;
     bulkEstimatedSellerAmount: number;
     orders: Order[];
@@ -222,7 +427,9 @@ export class OrdersService {
       const createdOrders: Order[] = [];
       const orderId = `bulk-${randomUUID()}`;
       let totalPrice = 0;
+      let chowdeckTotalPrice = 0;
       let bulkDeliveryFee = 0;
+      let chowdeckBulkDeliveryFee = 0;
       let bulkEstimatedPlatformFee = 0;
       let bulkEstimatedSellerAmount = 0;
       const platformCharges = this.platformCharges;
@@ -260,11 +467,19 @@ export class OrdersService {
           dto,
           buyer,
         );
+        const chowdeckQuote = await this.getChowdeckFeeQuote(
+          product.seller,
+          dto.deliveryAddress.latitude,
+          dto.deliveryAddress.longitude,
+        );
         const deliveryFee = deliveryDetails.deliveryFee * quantity;
         const displayDeliveryFee = deliveryFee + platformCharges;
         const orderTotal = lineTotal + displayDeliveryFee;
+        const chowdeckOrderTotal = lineTotal + chowdeckQuote.deliveryAmount + platformCharges;
         totalPrice += orderTotal;
+        chowdeckTotalPrice += chowdeckOrderTotal;
         bulkDeliveryFee += displayDeliveryFee;
+        chowdeckBulkDeliveryFee += chowdeckQuote.deliveryAmount;
         const estimatedPlatformFee = Math.floor(lineTotal * 0.12);
         const estimatedSellerAmount = Math.floor(
           lineTotal - estimatedPlatformFee,
@@ -279,13 +494,16 @@ export class OrdersService {
           unitPrice: product.price,
           totalPrice: orderTotal,
           bulkOrderId: orderId,
-          deliveryAddress: deliveryDetails.deliveryAddress,
+          deliveryAddress: dto.deliveryAddress.address || deliveryDetails.deliveryAddress,
           deliveryCity: deliveryDetails.deliveryCity,
           pickupStore: dto.pickupStore,
           deliveryState: deliveryDetails.deliveryState,
           departureZone: deliveryDetails.departureZone,
           arrivalZone: deliveryDetails.arrivalZone,
           deliveryFee: displayDeliveryFee,
+          chowdeckDeliveryAmount: chowdeckQuote.deliveryAmount,
+          chowdeckFeeId: chowdeckQuote.feeId,
+          chowdeckTotalPrice: chowdeckOrderTotal,
           platformCharges,
           estimatedDeliveryDays: deliveryDetails.estimatedDeliveryDays,
           platformFee: null as any,
@@ -303,6 +521,8 @@ export class OrdersService {
 
       for (const order of createdOrders) {
         order.bulkDeliveryFee = bulkDeliveryFee;
+        order.chowdeckBulkDeliveryFee = chowdeckBulkDeliveryFee;
+        order.chowdeckBulkTotalPrice = chowdeckTotalPrice;
         order.bulkEstimatedPlatformFee = bulkEstimatedPlatformFee;
         order.bulkEstimatedSellerAmount = bulkEstimatedSellerAmount;
       }
@@ -312,7 +532,10 @@ export class OrdersService {
       return {
         orderId,
         totalPrice,
+        chowdeckTotalPrice,
         bulkDeliveryFee,
+        chowdeckBulkDeliveryFee,
+        deliveryProvider: null,
         bulkEstimatedPlatformFee,
         bulkEstimatedSellerAmount,
         orders: createdOrders.map((order) => serializeOrderSeller(order)),
@@ -380,7 +603,7 @@ export class OrdersService {
   private calculateDeliveryDetails(
     product: Product,
     dto: {
-      deliveryAddress?: string;
+      deliveryAddress?: { address: string; latitude: number; longitude: number };
       deliveryCity?: string;
       deliveryState?: string;
     },
@@ -413,11 +636,13 @@ export class OrdersService {
     const deliveryQuote = this.deliveryRateCardService.getDeliveryFee(
       departureZone,
       arrivalZone,
-      product.size as 'small' | 'medium' | 'large',
+      this.deliveryRateCardService.getPackageSizeForWeight(
+        Number(product.weight),
+      ),
     );
 
     return {
-      deliveryAddress: dto.deliveryAddress || buyer.address,
+      deliveryAddress: dto.deliveryAddress?.address || buyer.address,
       deliveryCity,
       deliveryState: dto.deliveryState || buyer.state,
       departureZone,
@@ -635,7 +860,10 @@ export class OrdersService {
   async findByBulkOrderId(bulkOrderId: string): Promise<{
     orderId: string;
     totalPrice: number;
+    chowdeckTotalPrice: number;
     bulkDeliveryFee: number;
+    chowdeckBulkDeliveryFee: number;
+    deliveryProvider: DeliveryProvider | null;
     bulkEstimatedPlatformFee: number;
     bulkEstimatedSellerAmount: number;
     orders: Order[];
@@ -658,6 +886,15 @@ export class OrdersService {
     const bulkDeliveryFee =
       Number(orders[0]?.bulkDeliveryFee ?? 0) ||
       orders.reduce((sum, order) => sum + Number(order.deliveryFee ?? 0), 0);
+    const chowdeckTotalPrice =
+      Number(orders[0]?.chowdeckBulkTotalPrice ?? 0) ||
+      orders.reduce(
+        (sum, order) => sum + Number(order.chowdeckTotalPrice ?? order.totalPrice),
+        0,
+      );
+    const chowdeckBulkDeliveryFee =
+      Number(orders[0]?.chowdeckBulkDeliveryFee ?? 0) ||
+      orders.reduce((sum, order) => sum + Number(order.chowdeckDeliveryAmount ?? 0), 0);
     const bulkEstimatedPlatformFee =
       Number(orders[0]?.bulkEstimatedPlatformFee ?? 0) ||
       orders.reduce(
@@ -674,7 +911,10 @@ export class OrdersService {
     return {
       orderId: bulkOrderId,
       totalPrice,
+      chowdeckTotalPrice,
       bulkDeliveryFee,
+      chowdeckBulkDeliveryFee,
+      deliveryProvider: orders[0]?.deliveryProvider ?? null,
       bulkEstimatedPlatformFee,
       bulkEstimatedSellerAmount,
       orders: orders.map((order) => serializeOrderSeller(order)),

@@ -54,6 +54,19 @@ export class CloudinaryController {
   @ApiBearerAuth()
   @ApiOperation({
     summary: 'Get a short-lived link to an applicant verification document',
+    description:
+      'Use applicantType "agent" for an agent application or "ambassador" for an ambassador application.',
+  })
+  @ApiParam({
+    name: 'applicantType',
+    enum: ['agent', 'ambassador'],
+    example: 'agent',
+    description: 'Applicant type: agent or ambassador.',
+  })
+  @ApiParam({
+    name: 'applicationId',
+    example: '123',
+    description: 'Application ID for the selected applicant type.',
   })
   async getVerificationDocument(
     @Param('applicantType') applicantType: string,

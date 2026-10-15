@@ -53,6 +53,7 @@ export class AuthController {
           email: 'jane@example.com',
           password: 'SecurePass123!',
           role: 'seller',
+          sellerType: 'vendor, manufacturer, supplier',
           phoneNumber: '+0987654321',
         },
       },

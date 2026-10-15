@@ -27,6 +27,12 @@ import { CreateBlogDto } from './dto/create-blog.dto';
 import { UpdateBlogDto } from './dto/update-blog.dto';
 import { BlogStatus } from './entities/blog.entity';
 
+enum AdminBlogStatusFilter {
+  ALL = 'all',
+  DRAFT = BlogStatus.DRAFT,
+  PUBLISHED = BlogStatus.PUBLISHED,
+}
+
 @ApiTags('Blogs')
 @Controller('blogs')
 export class BlogsController {
@@ -75,9 +81,9 @@ export class BlogsController {
   @ApiBearerAuth()
   @ApiOperation({
     summary: 'Get blogs by status (admin only)',
-    description: 'Returns drafts or published blogs filtered by status, with pagination.',
+    description: 'Returns drafts, published blogs, or all blogs filtered by status, with pagination.',
   })
-  @ApiQuery({ name: 'status', enum: BlogStatus, required: true })
+  @ApiQuery({ name: 'status', enum: AdminBlogStatusFilter, required: true })
   @ApiQuery({ name: 'page', required: false, type: Number, example: 1 })
   @ApiQuery({ name: 'limit', required: false, type: Number, example: 10 })
   @ApiOkResponse({
@@ -92,26 +98,78 @@ export class BlogsController {
             excerpt: 'A short guide to selecting medical equipment.',
             content: 'Full blog post content goes here.',
             coverImageUrl: 'https://example.com/blog-cover.jpg',
-            status: 'draft',
-            publishedAt: null,
+            status: 'published',
+            publishedAt: '2026-10-12T10:00:00.000Z',
             createdAt: '2026-10-11T09:00:00.000Z',
             updatedAt: '2026-10-11T09:00:00.000Z',
           },
+          {
+            id: '223e4567-e89b-12d3-a456-426614174000',
+            slug: 'draft-medical-equipment-guide',
+            title: 'Draft Medical Equipment Guide',
+            excerpt: 'A draft article for admin review.',
+            content: 'Draft blog content goes here.',
+            coverImageUrl: null,
+            status: 'draft',
+            publishedAt: null,
+            createdAt: '2026-10-10T09:00:00.000Z',
+            updatedAt: '2026-10-10T09:00:00.000Z',
+          },
         ],
-        meta: { page: 1, limit: 10, total: 1, totalPages: 1 },
+        meta: { page: 1, limit: 10, total: 2, totalPages: 1 },
       },
     },
   })
   findByStatus(
-    @Query('status', new ParseEnumPipe(BlogStatus)) status: BlogStatus,
+    @Query('status', new ParseEnumPipe(AdminBlogStatusFilter))
+    status: AdminBlogStatusFilter,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
     return this.blogsService.findByStatus(
-      status,
+      status === AdminBlogStatusFilter.ALL
+        ? 'all'
+        : status === AdminBlogStatusFilter.DRAFT
+          ? BlogStatus.DRAFT
+          : BlogStatus.PUBLISHED,
       Number(page) || 1,
       Number(limit) || 10,
     );
+  }
+
+  @Get('admin/:id')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN)
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get a blog by ID (admin only)',
+    description:
+      'Returns a blog by UUID, including drafts. Optionally filter by its status.',
+  })
+  @ApiQuery({ name: 'status', enum: BlogStatus, required: false })
+  @ApiOkResponse({
+    description: 'The blog matching the ID and optional status.',
+    schema: {
+      example: {
+        id: '123e4567-e89b-12d3-a456-426614174000',
+        slug: 'choosing-the-right-medical-equipment',
+        title: 'Choosing the Right Medical Equipment',
+        excerpt: 'A short guide to selecting medical equipment.',
+        content: 'Full blog post content goes here.',
+        coverImageUrl: 'https://example.com/blog-cover.jpg',
+        status: 'draft',
+        publishedAt: null,
+        createdAt: '2026-10-11T09:00:00.000Z',
+        updatedAt: '2026-10-11T09:00:00.000Z',
+      },
+    },
+  })
+  findOneById(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Query('status', new ParseEnumPipe(BlogStatus, { optional: true }))
+    status?: BlogStatus,
+  ) {
+    return this.blogsService.findOneById(id, status);
   }
 
   @Get(':slug')

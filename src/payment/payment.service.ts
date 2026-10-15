@@ -12,7 +12,7 @@ import axios from 'axios';
 import { Order } from 'src/orders/entities/order.entity';
 import { Product } from 'src/products/entities/product-entity';
 import { User } from 'src/users/entities/user.entity';
-import { PaymentStatus, OrderStatus } from 'src/orders/enums/order.enum';
+import { DeliveryProvider, PaymentStatus, OrderStatus } from 'src/orders/enums/order.enum';
 import { InitiatePaymentDto } from './dto/payment.dto';
 import { EscrowStatus } from './entities/payment.entity';
 import { UserRole } from 'src/users/enums/user.enum';
@@ -58,6 +58,8 @@ export class PaymentsService {
     let orders: Order[] = [];
     let totalAmount = 0;
     let bulkOrderId: string | undefined;
+    let deliveryFee = 0;
+    let deliveryProvider = dto.deliveryProvider ?? DeliveryProvider.JUMIA;
 
     if (requestedBulkOrderId) {
       orders = await this.orderRepo.find({
@@ -93,7 +95,6 @@ export class PaymentsService {
         throw new BadRequestException('Cannot pay for cancelled order');
       }
 
-      totalAmount = orders.reduce((sum, o) => sum + Number(o.totalPrice), 0);
       bulkOrderId = requestedBulkOrderId;
       order = orders[0];
     } else if (requestedOrderId) {
@@ -121,7 +122,6 @@ export class PaymentsService {
         throw new BadRequestException('Cannot pay for cancelled order');
       }
 
-      totalAmount = Number(order.totalPrice);
       orders = [order];
     }
 
@@ -129,8 +129,45 @@ export class PaymentsService {
       throw new NotFoundException('Order not found');
     }
 
-    const deliveryFee = Number(order.deliveryFee ?? 0);
-    const productAmount = Number(order.totalPrice) - deliveryFee;
+    deliveryProvider = dto.deliveryProvider ?? order.deliveryProvider ?? DeliveryProvider.JUMIA;
+    if (
+      deliveryProvider === DeliveryProvider.CHOWDECK &&
+      orders.some(
+        (item) =>
+          item.chowdeckTotalPrice == null ||
+          item.chowdeckDeliveryAmount == null ||
+          item.chowdeckFeeId == null,
+      )
+    ) {
+      throw new BadRequestException(
+        'Chowdeck delivery pricing is unavailable for one or more orders',
+      );
+    }
+
+    totalAmount = orders.reduce(
+      (sum, item) =>
+        sum +
+        (deliveryProvider === DeliveryProvider.CHOWDECK
+          ? Number(item.chowdeckTotalPrice)
+          : Number(item.totalPrice)),
+      0,
+    );
+    const platformCharges = orders.reduce(
+      (sum, item) => sum + Number(item.platformCharges ?? 0),
+      0,
+    );
+    deliveryFee = orders.reduce((sum, item) => {
+      const itemPlatformCharges = Number(item.platformCharges ?? 0);
+      const fee = deliveryProvider === DeliveryProvider.CHOWDECK
+        ? Number(item.chowdeckDeliveryAmount ?? 0)
+        : Math.max(0, Number(item.deliveryFee ?? 0) - itemPlatformCharges);
+      return sum + fee;
+    }, 0);
+    const productAmount = orders.reduce(
+      (sum, item) => sum + Number(item.unitPrice) * item.quantity,
+      0,
+    );
+    orders.forEach((item) => (item.deliveryProvider = deliveryProvider));
     const estimatedPlatformFee = Math.floor(productAmount * 0.12);
     const estimatedSellerAmount = Math.floor(
       productAmount - estimatedPlatformFee,
@@ -195,6 +232,8 @@ export class PaymentsService {
         escrowStatus: EscrowStatus.HELD,
         provider: 'FLUTTERWAVE',
         deliveryFee,
+        deliveryProvider,
+        platformCharges,
         platformFee: null as any,
         sellerAmount: null as any,
         estimatedPlatformFee,
@@ -202,10 +241,13 @@ export class PaymentsService {
       });
 
       await this.paymentRepo.save(payment);
+      await this.orderRepo.save(orders);
 
       return {
         authorizationUrl: link,
         reference,
+        amount: totalAmount,
+        deliveryProvider,
       };
     } catch (error) {
       console.error(
@@ -630,14 +672,19 @@ export class PaymentsService {
           productName: order.product?.name || 'your product',
           quantity: order.quantity,
           unitPrice: this.formatCurrency(Number(order.unitPrice)),
-          totalPaid: this.formatCurrency(Number(order.totalPrice)),
+          totalPaid: this.formatCurrency(
+            order.deliveryProvider === DeliveryProvider.CHOWDECK
+              ? Number(order.chowdeckTotalPrice ?? order.totalPrice)
+              : Number(order.totalPrice),
+          ),
           purchaseTime,
           expectedDeliveryDate,
           deliveryAddress: order.deliveryAddress || undefined,
-          deliveryFee:
-            order.deliveryFee !== undefined && order.deliveryFee !== null
-              ? this.formatCurrency(Number(order.deliveryFee))
-              : undefined,
+          deliveryFee: this.formatCurrency(
+            order.deliveryProvider === DeliveryProvider.CHOWDECK
+              ? Number(order.chowdeckDeliveryAmount ?? 0) + Number(order.platformCharges ?? 0)
+              : Number(order.deliveryFee ?? 0),
+          ),
           pickupStore: order.pickupStore || undefined,
           orderDetailsUrl,
         });
@@ -672,7 +719,14 @@ export class PaymentsService {
           productPrice: this.formatCurrency(Number(order.unitPrice)),
         })),
         amountPaid: this.formatCurrency(
-          orders.reduce((total, order) => total + Number(order.totalPrice), 0),
+          orders.reduce(
+            (total, order) =>
+              total +
+              (order.deliveryProvider === DeliveryProvider.CHOWDECK
+                ? Number(order.chowdeckTotalPrice ?? order.totalPrice)
+                : Number(order.totalPrice)),
+            0,
+          ),
         ),
         paymentDate: this.formatDateTime(paidAt),
         estimatedDeliveryDate: orders
@@ -1063,17 +1117,22 @@ export class PaymentsService {
       );
     }
 
-    const amountPaid = Number(payment.order.totalPrice);
-    const displayDeliveryFee = Number(payment.order.deliveryFee ?? 0);
-    const platformCharges = Number(payment.order.platformCharges ?? 0);
-    const actualDeliveryFee = Math.max(0, displayDeliveryFee - platformCharges);
-    const productAmount = amountPaid - displayDeliveryFee;
+    const amountPaid = Number(payment.amount);
+    const platformCharges = Number(
+      payment.platformCharges ?? payment.order.platformCharges ?? 0,
+    );
+    const actualDeliveryFee = Number(payment.deliveryFee ?? 0);
+    const productAmount = amountPaid - actualDeliveryFee - platformCharges;
     const platformFee = Math.floor(productAmount * 0.12);
     const sellerAmount = Math.floor(productAmount - platformFee);
-    const sellerReceives = sellerAmount + actualDeliveryFee;
+    const sellerReceives =
+      sellerAmount +
+      (payment.deliveryProvider === DeliveryProvider.JUMIA
+        ? actualDeliveryFee
+        : 0);
     const breakdown = {
       amountPaid,
-      deliveryFee: displayDeliveryFee,
+      deliveryFee: actualDeliveryFee,
       actualDeliveryFee,
       platformCharges,
       productAmount,

@@ -41,8 +41,27 @@ export class UsersService {
       );
     }
 
+    const { address, businessAddress, ...profileFields } = dto;
+
     Object.assign(user, {
-      ...dto,
+      ...profileFields,
+      ...(address
+        ? {
+            address: address.address ?? user.address,
+            addressLatitude: address.latitude ?? user.addressLatitude,
+            addressLongitude: address.longitude ?? user.addressLongitude,
+          }
+        : {}),
+      ...(businessAddress
+        ? {
+            businessAddress:
+              businessAddress.address ?? user.businessAddress,
+            businessLatitude:
+              businessAddress.latitude ?? user.businessLatitude,
+            businessLongitude:
+              businessAddress.longitude ?? user.businessLongitude,
+          }
+        : {}),
       profileImageUrl,
     });
 

@@ -8,10 +8,17 @@ import {
   IsNumber,
   Min,
   Max,
+  IsEnum,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { DeliveryProvider } from 'src/orders/enums/order.enum';
 
 export class InitiatePaymentDto {
+  @ApiPropertyOptional({ enum: DeliveryProvider, example: DeliveryProvider.JUMIA, description: 'Delivery provider selected for this payment' })
+  @IsOptional()
+  @IsEnum(DeliveryProvider)
+  deliveryProvider?: DeliveryProvider;
+
   @ApiPropertyOptional({
     description: 'UUID of the order to be paid',
     example: '550e8400-e29b-41d4-a716-446655440000',

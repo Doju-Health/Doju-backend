@@ -350,7 +350,16 @@ export class ProductsController {
         description: { type: 'string' },
         price: { type: 'number' },
         stock: { type: 'number' },
-        size: { type: 'string', enum: ['small', 'medium', 'large'] },
+        size: {
+          type: 'string',
+          enum: ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'],
+        },
+        weight: {
+          type: 'number',
+          minimum: 0.01,
+          maximum: 50,
+          description: 'Weight in kilograms',
+        },
         color: { type: 'string', description: 'Product color' },
         categoryId: { type: 'string', format: 'uuid' },
         imageUrl: {
@@ -412,7 +421,16 @@ export class ProductsController {
         description: { type: 'string' },
         price: { type: 'number' },
         stock: { type: 'number' },
-        size: { type: 'string', enum: ['small', 'medium', 'large'] },
+        size: {
+          type: 'string',
+          enum: ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'],
+        },
+        weight: {
+          type: 'number',
+          minimum: 0.01,
+          maximum: 50,
+          description: 'Weight in kilograms',
+        },
         color: { type: 'string', description: 'Product color' },
         categoryId: { type: 'string', format: 'uuid' },
         imageUrl: {

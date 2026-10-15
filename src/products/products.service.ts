@@ -105,6 +105,7 @@ export class ProductsService {
       price: dto.price,
       stock: dto.stock,
       size: dto.size,
+      weight: dto.weight,
       color: dto.color,
       imageUrl,
       seller,

@@ -80,6 +80,12 @@ export class User {
   @Column('text', { nullable: true })
   address?: string; // Full address string
 
+  @Column('double precision', { nullable: true })
+  addressLatitude?: number;
+
+  @Column('double precision', { nullable: true })
+  addressLongitude?: number;
+
   @Column({ nullable: true })
   city?: string; // City from address
 
@@ -89,6 +95,12 @@ export class User {
   // 🔹 Seller business address
   @Column('text', { nullable: true })
   businessAddress?: string; // Full business address string
+
+  @Column('double precision', { nullable: true })
+  businessLatitude?: number;
+
+  @Column('double precision', { nullable: true })
+  businessLongitude?: number;
 
   @Column({ nullable: true })
   businessCity?: string; // City from business address

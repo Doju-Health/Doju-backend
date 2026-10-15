@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-const PRODUCT_SIZES = ['small', 'medium', 'large'] as const;
+const PRODUCT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'] as const;
 
 export class ProductResponseDto {
   @ApiProperty({
@@ -36,10 +36,13 @@ export class ProductResponseDto {
 
   @ApiProperty({
     enum: PRODUCT_SIZES,
-    example: 'medium',
-    description: 'Package size used for delivery pricing',
+    example: 'M',
+    description: 'Product size label',
   })
-  size: 'small' | 'medium' | 'large';
+  size: 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL' | 'XXXL';
+
+  @ApiProperty({ example: 2.5, description: 'Product weight in kilograms' })
+  weight: number;
 
   @ApiProperty({
     example: 'Blue',

@@ -37,6 +37,7 @@ import { JwtAuthGuard } from 'src/auth/guards/jwt-auth-guard';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import { User } from 'src/users/entities/user.entity';
 import { OrderStatus, PaymentStatus } from './enums/order.enum';
+import { CreateChowdeckDeliveryDto } from './dto/create-chowdeck-delivery.dto';
 
 @ApiTags('Orders')
 @Controller('orders')
@@ -73,6 +74,51 @@ export class OrdersController {
   })
   async create(@Body() dto: CreateOrderDto, @CurrentUser() buyer: User) {
     return this.ordersService.create(dto, buyer);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/chowdeck/delivery')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Create a Chowdeck delivery for a paid order',
+    description: 'Creates the Relay delivery from the saved Chowdeck fee quote. Repeated calls return the existing delivery.',
+  })
+  @ApiBody({ type: CreateChowdeckDeliveryDto })
+  @ApiCreatedResponse({
+    description: 'Chowdeck delivery created or already exists',
+    schema: {
+      example: {
+        status: 'success',
+        message: 'Delivery created successfully',
+        data: {
+          id: 98765,
+          reference: 'DOJU-123e4567-e89b-12d3-a456-426614174000',
+          delivery_price: 80000,
+          delivery_pin: 4821,
+          tracking_url: 'https://track.chowdeck.com/...',
+          status: 'preparing',
+        },
+      },
+    },
+  })
+  async createChowdeckDelivery(
+    @Param('id', ParseUUIDPipe) orderId: string,
+    @Body() dto: CreateChowdeckDeliveryDto,
+    @CurrentUser() requester: User,
+  ) {
+    return this.ordersService.createChowdeckDelivery(orderId, dto, requester);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/chowdeck/delivery')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Track the Chowdeck delivery for an order' })
+  @ApiOkResponse({ description: 'Current Chowdeck delivery status and details' })
+  async trackChowdeckDelivery(
+    @Param('id', ParseUUIDPipe) orderId: string,
+    @CurrentUser() requester: User,
+  ) {
+    return this.ordersService.trackChowdeckDelivery(orderId, requester);
   }
 
   @UseGuards(JwtAuthGuard)
