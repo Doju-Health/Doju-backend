@@ -61,31 +61,22 @@ export class OrdersService {
     const totalPrice = Number(product.price) * dto.quantity;
 
     const seller = product.seller;
-    if (
-      seller.businessLatitude == null ||
-      seller.businessLongitude == null ||
-      dto.deliveryAddress?.latitude == null ||
-      dto.deliveryAddress?.longitude == null
-    ) {
-      throw new BadRequestException(
-        'Seller pickup and buyer delivery coordinates are required for Chowdeck fee calculation',
-      );
-    }
-
-    let chowdeckDeliveryAmount: number;
-    let chowdeckFeeId: number;
-    try {
-      const quote = await this.getChowdeckFeeQuote(
-        seller,
-        dto.deliveryAddress.latitude,
-        dto.deliveryAddress.longitude,
-      );
-      chowdeckDeliveryAmount = quote.deliveryAmount;
-      chowdeckFeeId = quote.feeId;
-    } catch (error) {
-      throw new BadRequestException(
-        `Chowdeck delivery calculation failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
+    let chowdeckDeliveryAmount: number | null = null;
+    let chowdeckFeeId: number | null = null;
+    if (dto.deliveryAddress) {
+      try {
+        const quote = await this.getChowdeckFeeQuote(
+          seller,
+          dto.deliveryAddress.latitude,
+          dto.deliveryAddress.longitude,
+        );
+        chowdeckDeliveryAmount = quote.deliveryAmount;
+        chowdeckFeeId = quote.feeId;
+      } catch (error) {
+        throw new BadRequestException(
+          `Chowdeck delivery calculation failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     }
 
     // Calculate delivery fee
@@ -151,8 +142,11 @@ export class OrdersService {
       quantity: dto.quantity,
       unitPrice: product.price,
       totalPrice: totalPrice + displayDeliveryFee,
-      chowdeckTotalPrice: totalPrice + chowdeckDeliveryAmount + platformCharges,
-      deliveryAddress: dto.deliveryAddress.address || buyer.address,
+      chowdeckTotalPrice:
+        chowdeckDeliveryAmount == null
+          ? null
+          : totalPrice + chowdeckDeliveryAmount + platformCharges,
+      deliveryAddress: dto.deliveryAddress?.address || buyer.address,
       deliveryCity,
       pickupStore: dto.pickupStore,
       deliveryState,
@@ -405,9 +399,9 @@ export class OrdersService {
   ): Promise<{
     orderId: string;
     totalPrice: number;
-    chowdeckTotalPrice: number;
+    chowdeckTotalPrice: number | null;
     bulkDeliveryFee: number;
-    chowdeckBulkDeliveryFee: number;
+    chowdeckBulkDeliveryFee: number | null;
     deliveryProvider: DeliveryProvider | null;
     bulkEstimatedPlatformFee: number;
     bulkEstimatedSellerAmount: number;
@@ -467,19 +461,25 @@ export class OrdersService {
           dto,
           buyer,
         );
-        const chowdeckQuote = await this.getChowdeckFeeQuote(
-          product.seller,
-          dto.deliveryAddress.latitude,
-          dto.deliveryAddress.longitude,
-        );
+        const chowdeckQuote = dto.deliveryAddress
+          ? await this.getChowdeckFeeQuote(
+              product.seller,
+              dto.deliveryAddress.latitude,
+              dto.deliveryAddress.longitude,
+            )
+          : null;
         const deliveryFee = deliveryDetails.deliveryFee * quantity;
         const displayDeliveryFee = deliveryFee + platformCharges;
         const orderTotal = lineTotal + displayDeliveryFee;
-        const chowdeckOrderTotal = lineTotal + chowdeckQuote.deliveryAmount + platformCharges;
+        const chowdeckOrderTotal = chowdeckQuote
+          ? lineTotal + chowdeckQuote.deliveryAmount + platformCharges
+          : null;
         totalPrice += orderTotal;
-        chowdeckTotalPrice += chowdeckOrderTotal;
+        if (chowdeckOrderTotal != null) chowdeckTotalPrice += chowdeckOrderTotal;
         bulkDeliveryFee += displayDeliveryFee;
-        chowdeckBulkDeliveryFee += chowdeckQuote.deliveryAmount;
+        if (chowdeckQuote) {
+          chowdeckBulkDeliveryFee += chowdeckQuote.deliveryAmount;
+        }
         const estimatedPlatformFee = Math.floor(lineTotal * 0.12);
         const estimatedSellerAmount = Math.floor(
           lineTotal - estimatedPlatformFee,
@@ -494,15 +494,15 @@ export class OrdersService {
           unitPrice: product.price,
           totalPrice: orderTotal,
           bulkOrderId: orderId,
-          deliveryAddress: dto.deliveryAddress.address || deliveryDetails.deliveryAddress,
+          deliveryAddress: dto.deliveryAddress?.address || deliveryDetails.deliveryAddress,
           deliveryCity: deliveryDetails.deliveryCity,
           pickupStore: dto.pickupStore,
           deliveryState: deliveryDetails.deliveryState,
           departureZone: deliveryDetails.departureZone,
           arrivalZone: deliveryDetails.arrivalZone,
           deliveryFee: displayDeliveryFee,
-          chowdeckDeliveryAmount: chowdeckQuote.deliveryAmount,
-          chowdeckFeeId: chowdeckQuote.feeId,
+          chowdeckDeliveryAmount: chowdeckQuote?.deliveryAmount ?? null,
+          chowdeckFeeId: chowdeckQuote?.feeId ?? null,
           chowdeckTotalPrice: chowdeckOrderTotal,
           platformCharges,
           estimatedDeliveryDays: deliveryDetails.estimatedDeliveryDays,
@@ -521,8 +521,12 @@ export class OrdersService {
 
       for (const order of createdOrders) {
         order.bulkDeliveryFee = bulkDeliveryFee;
-        order.chowdeckBulkDeliveryFee = chowdeckBulkDeliveryFee;
-        order.chowdeckBulkTotalPrice = chowdeckTotalPrice;
+        order.chowdeckBulkDeliveryFee = dto.deliveryAddress
+          ? chowdeckBulkDeliveryFee
+          : null;
+        order.chowdeckBulkTotalPrice = dto.deliveryAddress
+          ? chowdeckTotalPrice
+          : null;
         order.bulkEstimatedPlatformFee = bulkEstimatedPlatformFee;
         order.bulkEstimatedSellerAmount = bulkEstimatedSellerAmount;
       }
@@ -532,9 +536,11 @@ export class OrdersService {
       return {
         orderId,
         totalPrice,
-        chowdeckTotalPrice,
+        chowdeckTotalPrice: dto.deliveryAddress ? chowdeckTotalPrice : null,
         bulkDeliveryFee,
-        chowdeckBulkDeliveryFee,
+        chowdeckBulkDeliveryFee: dto.deliveryAddress
+          ? chowdeckBulkDeliveryFee
+          : null,
         deliveryProvider: null,
         bulkEstimatedPlatformFee,
         bulkEstimatedSellerAmount,
@@ -860,9 +866,9 @@ export class OrdersService {
   async findByBulkOrderId(bulkOrderId: string): Promise<{
     orderId: string;
     totalPrice: number;
-    chowdeckTotalPrice: number;
+    chowdeckTotalPrice: number | null;
     bulkDeliveryFee: number;
-    chowdeckBulkDeliveryFee: number;
+    chowdeckBulkDeliveryFee: number | null;
     deliveryProvider: DeliveryProvider | null;
     bulkEstimatedPlatformFee: number;
     bulkEstimatedSellerAmount: number;
@@ -886,15 +892,18 @@ export class OrdersService {
     const bulkDeliveryFee =
       Number(orders[0]?.bulkDeliveryFee ?? 0) ||
       orders.reduce((sum, order) => sum + Number(order.deliveryFee ?? 0), 0);
-    const chowdeckTotalPrice =
-      Number(orders[0]?.chowdeckBulkTotalPrice ?? 0) ||
-      orders.reduce(
-        (sum, order) => sum + Number(order.chowdeckTotalPrice ?? order.totalPrice),
-        0,
-      );
-    const chowdeckBulkDeliveryFee =
-      Number(orders[0]?.chowdeckBulkDeliveryFee ?? 0) ||
-      orders.reduce((sum, order) => sum + Number(order.chowdeckDeliveryAmount ?? 0), 0);
+    const hasChowdeckQuote = orders.some((order) => order.chowdeckFeeId != null);
+    const chowdeckTotalPrice = hasChowdeckQuote
+      ? Number(orders[0]?.chowdeckBulkTotalPrice ?? 0) ||
+        orders.reduce(
+          (sum, order) => sum + Number(order.chowdeckTotalPrice ?? order.totalPrice),
+          0,
+        )
+      : null;
+    const chowdeckBulkDeliveryFee = hasChowdeckQuote
+      ? Number(orders[0]?.chowdeckBulkDeliveryFee ?? 0) ||
+        orders.reduce((sum, order) => sum + Number(order.chowdeckDeliveryAmount ?? 0), 0)
+      : null;
     const bulkEstimatedPlatformFee =
       Number(orders[0]?.bulkEstimatedPlatformFee ?? 0) ||
       orders.reduce(

@@ -42,14 +42,16 @@ export class CreateOrderDto {
   @Min(1)
   quantity: number;
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     example: { address: '123 Main Street, Lagos, Nigeria', latitude: 6.578997, longitude: 3.349467 },
-    description: 'Buyer delivery address and coordinates used for Chowdeck fee calculation',
+    description: 'Buyer delivery address and coordinates. When omitted, Chowdeck fee calculation is skipped.',
+    type: DeliveryAddressDto,
+    required: false,
   })
+  @IsOptional()
   @ValidateNested()
-  @IsNotEmpty()
   @Type(() => DeliveryAddressDto)
-  deliveryAddress: DeliveryAddressDto;
+  deliveryAddress?: DeliveryAddressDto;
 
   @ApiPropertyOptional({
     example: 'Ikorodu',
@@ -109,14 +111,16 @@ export class CreateBulkOrdersDto {
   @Min(1, { each: true })
   quantities: number[];
 
-  @ApiProperty({
+  @ApiPropertyOptional({
     example: { address: '123 Main Street, Lagos, Nigeria', latitude: 6.578997, longitude: 3.349467 },
-    description: 'Buyer delivery address and coordinates applied to all orders',
+    description: 'Buyer delivery address and coordinates applied to all orders. When omitted, Chowdeck fee calculation is skipped.',
+    type: DeliveryAddressDto,
+    required: false,
   })
+  @IsOptional()
   @ValidateNested()
-  @IsNotEmpty()
   @Type(() => DeliveryAddressDto)
-  deliveryAddress: DeliveryAddressDto;
+  deliveryAddress?: DeliveryAddressDto;
 
   @ApiPropertyOptional({
     example: 'Ikorodu',
