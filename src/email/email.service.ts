@@ -6,6 +6,7 @@ import * as path from 'path';
 @Injectable()
 export class EmailService {
   private resend: Resend;
+  private readonly defaultFrom = 'DOJU <noreply@dojuhealth.com>';
 
   constructor() {
     // Initialize Resend client
@@ -29,11 +30,11 @@ export class EmailService {
     const html = nunjucks.render('email-verification.njk', {
       fullName,
       otp,
-      expiryTime: '10 minutes',
+      expiryTime: '5 minutes',
     });
 
     await this.resend.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || 'noreply@dojuhealth.com',
+      from: this.getFromAddress(),
       to: email,
       subject: 'Verify Your Email - DOJU',
       html,
@@ -48,7 +49,6 @@ export class EmailService {
     otp: string,
     fullName: string,
   ): Promise<void> {
-
     const html = nunjucks.render('password-reset.njk', {
       fullName,
       otp,
@@ -56,7 +56,7 @@ export class EmailService {
     });
 
     await this.resend.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || 'noreply@dojuhealth.com',
+      from: this.getFromAddress(),
       to: email,
       subject: 'Reset Your Password - DOJU',
       html,
@@ -68,9 +68,55 @@ export class EmailService {
    */
   async sendEmail(to: string, subject: string, html: string): Promise<void> {
     await this.resend.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || 'noreply@dojuhealth.com',
+      from: this.getFromAddress(),
       to,
       subject,
+      html,
+    });
+  }
+
+  async sendApplicationReviewNotificationEmail(params: {
+    adminEmail: string;
+    adminName?: string;
+    applicantName: string;
+    applicantEmail: string;
+    applicationType: string;
+    fields: Array<{ label: string; value: string }>;
+    reviewUrl: string;
+  }): Promise<void> {
+    const html = nunjucks.render('admin-agent-ambassador-review.njk', {
+      ...params,
+      adminName: params.adminName || 'there',
+    });
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: params.adminEmail,
+      subject: `New ${params.applicationType} application awaiting review`,
+      html,
+    });
+  }
+
+  async sendAgentAmbassadorApplicationStatusEmail(params: {
+    email: string;
+    fullName?: string;
+    applicationType: string;
+    status: 'approved' | 'rejected';
+    rejectionReason?: string;
+    referralCode?: string;
+    referralLink?: string;
+    temporaryPassword?: string;
+  }): Promise<void> {
+    const html = nunjucks.render('agent-ambassador-application-status.njk', {
+      ...params,
+      fullName: params.fullName || 'there',
+    });
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: params.email,
+      subject:
+        params.status === 'approved'
+          ? `Your DOJU ${params.applicationType} application is approved`
+          : `Update on your DOJU ${params.applicationType} application`,
       html,
     });
   }
@@ -90,7 +136,7 @@ export class EmailService {
     });
 
     await this.resend.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || 'noreply@dojuhealth.com',
+      from: this.getFromAddress(),
       to: email,
       subject: 'Welcome to DOJU',
       html,
@@ -106,10 +152,399 @@ export class EmailService {
     });
 
     await this.resend.emails.send({
-      from: process.env.RESEND_FROM_EMAIL || 'noreply@dojuhealth.com',
+      from: this.getFromAddress(),
       to: email,
       subject: "You're on the DOJU waitlist",
       html,
     });
+  }
+
+  /**
+   * Send seller KYC approved email
+   */
+  async sendSellerKycApprovedEmail(
+    email: string,
+    fullName?: string,
+  ): Promise<void> {
+    const html = nunjucks.render('seller-kyc-approved.njk', {
+      fullName: fullName || 'there',
+      email,
+    });
+
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: email,
+      subject: 'Your seller KYC has been approved',
+      html,
+    });
+  }
+
+  /**
+   * Send seller KYC rejected email
+   */
+  async sendSellerKycRejectedEmail(
+    email: string,
+    fullName: string | undefined,
+    reason: string,
+  ): Promise<void> {
+    const html = nunjucks.render('seller-kyc-rejected.njk', {
+      fullName: fullName || 'there',
+      email,
+      reason,
+    });
+
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: email,
+      subject: 'Your seller KYC has been rejected',
+      html,
+    });
+  }
+
+  /**
+   * Send seller notification that a product has been purchased
+   */
+  async sendProductPurchasedEmail(params: {
+    sellerEmail: string;
+    sellerName?: string;
+    buyerName: string;
+    buyerPhoneNumber?: string;
+    buyerLocation: string;
+    productName: string;
+    quantity: number;
+    unitPrice: string;
+    totalPaid: string;
+    purchaseTime: string;
+    expectedDeliveryDate: string;
+    deliveryAddress?: string;
+    deliveryFee?: string;
+    pickupStore?: string;
+    orderDetailsUrl: string;
+  }): Promise<void> {
+    const html = nunjucks.render('seller-product-purchased.njk', {
+      sellerName: params.sellerName || 'there',
+      buyerName: params.buyerName,
+      buyerPhoneNumber: params.buyerPhoneNumber,
+      buyerLocation: params.buyerLocation,
+      productName: params.productName,
+      quantity: params.quantity,
+      unitPrice: params.unitPrice,
+      totalPaid: params.totalPaid,
+      purchaseTime: params.purchaseTime,
+      expectedDeliveryDate: params.expectedDeliveryDate,
+      deliveryAddress: params.deliveryAddress,
+      deliveryFee: params.deliveryFee,
+      pickupStore: params.pickupStore,
+      orderDetailsUrl: params.orderDetailsUrl,
+    });
+
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: params.sellerEmail,
+      subject: 'Your Product Has Been Purchased',
+      html,
+    });
+  }
+
+  async sendBuyerOrderCreatedEmail(params: {
+    buyerEmail: string;
+    buyerName?: string;
+    orderId: string;
+    items: Array<{
+      productName: string;
+      quantity: number;
+      productPrice: string;
+    }>;
+    totalAmountPayable: string;
+    deliveryAddress?: string;
+    deliveryCity?: string;
+    deliveryState?: string;
+    pickupStore?: string;
+    estimatedDeliveryDays?: string;
+    paymentUrl: string;
+  }): Promise<void> {
+    const html = nunjucks.render('buyer-order-created.njk', {
+      buyerName: params.buyerName || 'there',
+      orderId: params.orderId,
+      items: params.items,
+      totalAmountPayable: params.totalAmountPayable,
+      deliveryAddress: params.deliveryAddress,
+      deliveryCity: params.deliveryCity,
+      deliveryState: params.deliveryState,
+      pickupStore: params.pickupStore,
+      estimatedDeliveryDays: params.estimatedDeliveryDays,
+      paymentUrl: params.paymentUrl,
+    });
+
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: params.buyerEmail,
+      subject: 'Complete Your DOJU Order Payment',
+      html,
+    });
+  }
+
+  async sendBuyerPaymentConfirmationEmail(params: {
+    buyerEmail: string;
+    buyerName?: string;
+    orderId: string;
+    items: Array<{
+      productName: string;
+      quantity: number;
+      productPrice: string;
+    }>;
+    amountPaid: string;
+    paymentDate: string;
+    estimatedDeliveryDate: string;
+    pickupStore?: string;
+    trackingUrl: string;
+  }): Promise<void> {
+    const html = nunjucks.render('buyer-payment-confirmation.njk', {
+      buyerName: params.buyerName || 'there',
+      orderId: params.orderId,
+      items: params.items,
+      amountPaid: params.amountPaid,
+      paymentDate: params.paymentDate,
+      estimatedDeliveryDate: params.estimatedDeliveryDate,
+      pickupStore: params.pickupStore,
+      trackingUrl: params.trackingUrl,
+    });
+
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: params.buyerEmail,
+      subject: 'Payment Confirmed - DOJU Order',
+      html,
+    });
+  }
+
+  async sendBuyerOrderShippedEmail(params: {
+    buyerEmail: string;
+    buyerName?: string;
+    orderId: string;
+    items: Array<{
+      productName: string;
+      quantity: number;
+    }>;
+    trackingNumber?: string;
+    shippedAt: string;
+    trackingUrl: string;
+  }): Promise<void> {
+    const html = nunjucks.render('buyer-order-shipped.njk', {
+      buyerName: params.buyerName || 'there',
+      orderId: params.orderId,
+      items: params.items,
+      trackingNumber: params.trackingNumber,
+      shippedAt: params.shippedAt,
+      trackingUrl: params.trackingUrl,
+    });
+
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: params.buyerEmail,
+      subject: 'Your DOJU Order Has Shipped',
+      html,
+    });
+  }
+
+  async sendBuyerOrderDeliveredEmail(params: {
+    buyerEmail: string;
+    buyerName?: string;
+    orderId: string;
+    items: Array<{
+      productName: string;
+      quantity: number;
+      sellerPhoneNumber?: string;
+    }>;
+    deliveredAt: string;
+    confirmationUrl: string;
+  }): Promise<void> {
+    const html = nunjucks.render('buyer-order-delivered.njk', {
+      buyerName: params.buyerName || 'there',
+      orderId: params.orderId,
+      items: params.items,
+      deliveredAt: params.deliveredAt,
+      confirmationUrl: params.confirmationUrl,
+    });
+
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: params.buyerEmail,
+      subject: 'Your DOJU Order Has Been Delivered',
+      html,
+    });
+  }
+
+  /**
+   * Send admin notification that a seller submitted a new product for review
+   */
+  async sendProductReviewNotificationEmail(params: {
+    adminEmail: string;
+    adminName?: string;
+    productName: string;
+    productPrice: string;
+    productDescription: string;
+    productCategory?: string;
+    productStock?: number;
+    productSize?: string;
+    sellerName: string;
+    sellerEmail: string;
+    sellerCompanyName?: string;
+    productCreatedAt: string;
+    adminDashboardUrl: string;
+  }): Promise<void> {
+    const html = nunjucks.render('admin-product-review.njk', {
+      adminName: params.adminName || 'there',
+      productName: params.productName,
+      productPrice: params.productPrice,
+      productDescription: params.productDescription,
+      productCategory: params.productCategory || 'N/A',
+      productStock:
+        params.productStock !== undefined ? params.productStock : 'N/A',
+      productSize: params.productSize || 'N/A',
+      sellerName: params.sellerName,
+      sellerEmail: params.sellerEmail,
+      sellerCompanyName: params.sellerCompanyName || 'N/A',
+      productCreatedAt: params.productCreatedAt,
+      adminDashboardUrl: params.adminDashboardUrl,
+    });
+
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: params.adminEmail,
+      subject: `New product awaiting review: ${params.productName}`,
+      html,
+    });
+  }
+
+  /**
+   * Send seller notification that a newly created product is pending review
+   */
+  async sendProductPendingReviewEmail(params: {
+    sellerEmail: string;
+    sellerName?: string;
+    productName: string;
+    productPrice: string;
+    productDescription: string;
+    productCategory?: string;
+    productStock?: number;
+    productSize?: string;
+    adminDashboardUrl?: string;
+  }): Promise<void> {
+    const html = nunjucks.render('seller-product-pending-review.njk', {
+      sellerName: params.sellerName || 'there',
+      productName: params.productName,
+      productPrice: params.productPrice,
+      productDescription: params.productDescription,
+      productCategory: params.productCategory || 'N/A',
+      productStock:
+        params.productStock !== undefined ? params.productStock : 'N/A',
+      productSize: params.productSize || 'N/A',
+      adminDashboardUrl: params.adminDashboardUrl,
+    });
+
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: params.sellerEmail,
+      subject: `Your product is pending review: ${params.productName}`,
+      html,
+    });
+  }
+
+  /**
+   * Send seller notification that a product has been approved
+   */
+  async sendProductApprovedEmail(params: {
+    sellerEmail: string;
+    sellerName?: string;
+    productName: string;
+    productPrice: string;
+    productDescription: string;
+    productCategory?: string;
+    adminDashboardUrl?: string;
+  }): Promise<void> {
+    const html = nunjucks.render('seller-product-approved.njk', {
+      sellerName: params.sellerName || 'there',
+      productName: params.productName,
+      productPrice: params.productPrice,
+      productDescription: params.productDescription,
+      productCategory: params.productCategory || 'N/A',
+      adminDashboardUrl: params.adminDashboardUrl,
+    });
+
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: params.sellerEmail,
+      subject: `Your product has been approved: ${params.productName}`,
+      html,
+    });
+  }
+
+  /**
+   * Send seller notification that a product has been rejected
+   */
+  async sendProductRejectedEmail(params: {
+    sellerEmail: string;
+    sellerName?: string;
+    productName: string;
+    productPrice: string;
+    productDescription: string;
+    productCategory?: string;
+    rejectionReason: string;
+    adminDashboardUrl?: string;
+  }): Promise<void> {
+    const html = nunjucks.render('seller-product-rejected.njk', {
+      sellerName: params.sellerName || 'there',
+      productName: params.productName,
+      productPrice: params.productPrice,
+      productDescription: params.productDescription,
+      productCategory: params.productCategory || 'N/A',
+      rejectionReason: params.rejectionReason,
+      adminDashboardUrl: params.adminDashboardUrl,
+    });
+
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: params.sellerEmail,
+      subject: `Your product was rejected: ${params.productName}`,
+      html,
+    });
+  }
+
+  /**
+   * Send admin notification that a seller KYC review is pending
+   */
+  async sendSellerKycPendingReviewEmail(params: {
+    adminEmail: string;
+    adminName?: string;
+    sellerName: string;
+    sellerEmail: string;
+    companyName?: string;
+    businessAddress?: string;
+    businessCity?: string;
+    businessState?: string;
+    dashboardUrl: string;
+  }): Promise<void> {
+    const html = nunjucks.render('seller-kyc-pending-review.njk', {
+      adminName: params.adminName || 'there',
+      sellerName: params.sellerName,
+      sellerEmail: params.sellerEmail,
+      companyName: params.companyName || 'N/A',
+      businessAddress: params.businessAddress || 'N/A',
+      businessCity: params.businessCity || 'N/A',
+      businessState: params.businessState || 'N/A',
+      dashboardUrl: params.dashboardUrl,
+    });
+
+    await this.resend.emails.send({
+      from: this.getFromAddress(),
+      to: params.adminEmail,
+      subject: `Seller KYC pending review: ${params.sellerName}`,
+      html,
+    });
+  }
+
+  private getFromAddress(): string {
+    return process.env.RESEND_FROM_EMAIL || this.defaultFrom;
   }
 }

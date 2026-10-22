@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { UserRole } from 'src/users/enums/user.enum';
+import { UserRole, VerificationStatus } from 'src/users/enums/user.enum';
 
 export class AdminUserResponseDto {
   @ApiProperty({ example: 'user-123', description: 'User unique identifier' })
@@ -20,6 +20,26 @@ export class AdminUserResponseDto {
 
   @ApiProperty({ example: 'seller', enum: UserRole, description: 'User role' })
   role: UserRole;
+
+  @ApiProperty({
+    example: false,
+    description: 'Whether this admin is the single super admin',
+  })
+  isSuperAdmin: boolean;
+
+  @ApiProperty({
+    example: true,
+    description: 'Whether seller KYC has been approved',
+    nullable: true,
+  })
+  kycApproved?: boolean;
+
+  @ApiProperty({
+    example: 'Submitted documents were blurry',
+    description: 'Reason for KYC rejection, if applicable',
+    nullable: true,
+  })
+  kycRejectionReason?: string;
 
   @ApiProperty({
     example: 'HealthEquip Ltd',
@@ -59,8 +79,12 @@ export class AdminUserResponseDto {
   @ApiProperty({ example: true, description: 'Email verification status' })
   emailVerified: boolean;
 
-  @ApiProperty({ example: false, description: 'Seller verification status' })
-  isVerified: boolean;
+  @ApiProperty({
+    example: VerificationStatus.UNVERIFIED,
+    enum: VerificationStatus,
+    description: 'Seller verification status',
+  })
+  isVerified: VerificationStatus;
 
   @ApiProperty({ example: true, description: 'Active status' })
   isActive: boolean;

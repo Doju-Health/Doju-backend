@@ -9,12 +9,14 @@ import { Payment } from './payment/entities/payment.entity';
 import { CartItem } from './cart/entities/cart-item.entity';
 import { OrderTracking } from './tracking/entities/tracking.entity';
 import { WaitlistEntry } from './waitlist/entities/waitlist-entry.entity';
+import { Ambassador } from './ambassadors/entities/ambassador.entity';
+import { Agent } from './agents/entities/agent.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
   url: process.env.DATABASE_URL,
-  entities: [User, Product, ProductCategory, Order, Payment, CartItem, OrderTracking, WaitlistEntry],
-  migrations: ['dist/migrations/*.js'],
+  entities: [User, Product, ProductCategory, Order, Payment, CartItem, OrderTracking, WaitlistEntry, Ambassador, Agent],
+  migrations: ['src/migrations/*.ts'],
   synchronize: false,
   schema: 'public',
 });

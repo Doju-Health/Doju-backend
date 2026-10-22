@@ -14,3 +14,8 @@ export enum PaymentStatus {
   REFUNDED = 'REFUNDED',
   PENDING_REFUND = 'PENDING_REFUND',
 }
+
+export enum DeliveryProvider {
+  JUMIA = 'JUMIA',
+  CHOWDECK = 'CHOWDECK',
+}

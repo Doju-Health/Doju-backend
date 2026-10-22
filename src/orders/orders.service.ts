@@ -1,23 +1,30 @@
 import {
   Injectable,
   BadRequestException,
+  BadGatewayException,
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Brackets, EntityManager, Repository } from 'typeorm';
 import { Order } from './entities/order.entity';
 import { Product } from 'src/products/entities/product-entity';
 import { User } from 'src/users/entities/user.entity';
 import { CreateOrderDto, CreateBulkOrdersDto } from './dto/create-order.dto';
 import { UpdateOrderDto } from './dto/update-order.dto';
-import { OrderStatus, PaymentStatus } from './enums/order.enum';
+import { DeliveryProvider, OrderStatus, PaymentStatus } from './enums/order.enum';
 import { randomUUID } from 'crypto';
 import { DeliveryZoneService } from 'src/common/services/delivery-zone.service';
 import { DeliveryRateCardService } from 'src/common/services/delivery-rate-card.service';
+import { serializeOrderSeller } from 'src/common/services/public-seller.util';
+import { EmailService } from 'src/email/email.service';
+import axios from 'axios';
+import { CreateChowdeckDeliveryDto } from './dto/create-chowdeck-delivery.dto';
 
 @Injectable()
 export class OrdersService {
+  private readonly platformCharges = 200;
+
   constructor(
     @InjectRepository(Order)
     private orderRepo: Repository<Order>,
@@ -25,6 +32,7 @@ export class OrdersService {
     private productRepo: Repository<Product>,
     private deliveryZoneService: DeliveryZoneService,
     private deliveryRateCardService: DeliveryRateCardService,
+    private emailService: EmailService,
   ) {}
 
   async create(dto: CreateOrderDto, buyer: User): Promise<Order> {
@@ -51,6 +59,25 @@ export class OrdersService {
 
     // Calculate base total price
     const totalPrice = Number(product.price) * dto.quantity;
+
+    const seller = product.seller;
+    let chowdeckDeliveryAmount: number | null = null;
+    let chowdeckFeeId: number | null = null;
+    if (dto.deliveryAddress) {
+      try {
+        const quote = await this.getChowdeckFeeQuote(
+          seller,
+          dto.deliveryAddress.latitude,
+          dto.deliveryAddress.longitude,
+        );
+        chowdeckDeliveryAmount = quote.deliveryAmount;
+        chowdeckFeeId = quote.feeId;
+      } catch (error) {
+        throw new BadRequestException(
+          `Chowdeck delivery calculation failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+    }
 
     // Calculate delivery fee
     let deliveryFee = 0;
@@ -88,7 +115,9 @@ export class OrdersService {
       const deliveryQuote = this.deliveryRateCardService.getDeliveryFee(
         departureZone,
         arrivalZone,
-        product.size as 'small' | 'medium' | 'large',
+        this.deliveryRateCardService.getPackageSizeForWeight(
+          Number(product.weight),
+        ),
       );
 
       deliveryFee = deliveryQuote.fee;
@@ -101,6 +130,8 @@ export class OrdersService {
       );
     }
 
+    const platformCharges = this.platformCharges;
+    const displayDeliveryFee = deliveryFee + platformCharges;
     const estimatedPlatformFee = Math.floor(totalPrice * 0.12);
     const estimatedSellerAmount = Math.floor(totalPrice - estimatedPlatformFee);
 
@@ -110,14 +141,21 @@ export class OrdersService {
       product,
       quantity: dto.quantity,
       unitPrice: product.price,
-      totalPrice: totalPrice + deliveryFee, // Include delivery fee in total
-      deliveryAddress: dto.deliveryAddress || buyer.address,
+      totalPrice: totalPrice + displayDeliveryFee,
+      chowdeckTotalPrice:
+        chowdeckDeliveryAmount == null
+          ? null
+          : totalPrice + chowdeckDeliveryAmount + platformCharges,
+      deliveryAddress: dto.deliveryAddress?.address || buyer.address,
       deliveryCity,
       pickupStore: dto.pickupStore,
       deliveryState,
       departureZone,
       arrivalZone,
-      deliveryFee,
+      deliveryFee: displayDeliveryFee,
+      chowdeckDeliveryAmount,
+      chowdeckFeeId,
+      platformCharges,
       platformFee: null as any,
       sellerAmount: null as any,
       estimatedPlatformFee,
@@ -128,10 +166,231 @@ export class OrdersService {
       paymentStatus: PaymentStatus.PENDING,
     });
 
-    // Save order
     const savedOrder = await this.orderRepo.save(order);
 
-    return savedOrder;
+    await this.notifyBuyerOrderCreated([savedOrder], buyer, savedOrder.id);
+
+    return serializeOrderSeller(savedOrder);
+  }
+
+  async createChowdeckDelivery(
+    orderId: string,
+    dto: CreateChowdeckDeliveryDto,
+    requester: User,
+  ) {
+    const order = await this.getOrderForChowdeck(orderId, requester);
+    if (order.paymentStatus !== PaymentStatus.PAID) {
+      throw new BadRequestException('Order must be paid before creating a Chowdeck delivery');
+    }
+    if (order.deliveryProvider !== DeliveryProvider.CHOWDECK) {
+      throw new BadRequestException('Chowdeck delivery was not selected for this order');
+    }
+    if (order.chowdeckReference) {
+      return this.chowdeckDeliveryResult(order);
+    }
+    if (!order.chowdeckFeeId) {
+      throw new BadRequestException('Order has no Chowdeck fee quote. Create the order again with delivery coordinates.');
+    }
+    if (dto.fee_id !== Number(order.chowdeckFeeId)) {
+      throw new BadRequestException('fee_id does not match the Chowdeck quote saved for this order');
+    }
+
+    const apiKey = process.env.CHOWDECK_API_KEY;
+    if (!apiKey) {
+      throw new BadRequestException('Chowdeck fee service is not configured');
+    }
+
+    const reference = `DOJU-${order.id}`;
+    try {
+      const response = await axios.post(
+        'https://api.relay.chowdeck.com/relay/delivery',
+        {
+          fee_id: dto.fee_id,
+          reference,
+          item_type: dto.item_type,
+          user_action: dto.user_action,
+          source_contact: dto.source_contact,
+          destination_contact: dto.destination_contact,
+          customer_delivery_note: dto.customer_delivery_note,
+          delivery_pin: dto.delivery_pin,
+        },
+        { headers: { Authorization: `Bearer ${apiKey}` } },
+      );
+
+      const data = response.data?.data;
+      if (!data?.reference || !Number.isInteger(Number(data.id))) {
+        throw new Error('Chowdeck response did not include a delivery ID and reference');
+      }
+
+      order.chowdeckDeliveryId = Number(data.id);
+      order.chowdeckDeliveryPrice = Number(data.delivery_price ?? 0);
+      order.chowdeckReference = String(data.reference);
+      order.chowdeckDeliveryStatus = data.status ?? null;
+      order.chowdeckTrackingUrl = data.tracking_url ?? null;
+      order.chowdeckDeliveryPin = String(data.delivery_pin ?? dto.delivery_pin);
+      await this.orderRepo.save(order);
+      return this.chowdeckDeliveryResult(order, response.data?.message);
+    } catch (error) {
+      const providerResponse = axios.isAxiosError(error)
+        ? error.response?.data
+        : undefined;
+      const providerMessage =
+        providerResponse?.message ??
+        (providerResponse ? JSON.stringify(providerResponse) : undefined);
+      const message =
+        providerMessage ||
+        (error instanceof Error ? error.message : String(error));
+      throw new BadGatewayException(`Chowdeck delivery creation failed: ${message}`);
+    }
+  }
+
+  async trackChowdeckDelivery(orderId: string, requester: User) {
+    const order = await this.getOrderForChowdeck(orderId, requester);
+    if (!order.chowdeckReference) {
+      throw new NotFoundException('Chowdeck delivery has not been created for this order');
+    }
+    const apiKey = process.env.CHOWDECK_API_KEY;
+    if (!apiKey) {
+      throw new BadRequestException('Chowdeck fee service is not configured');
+    }
+
+    try {
+      const response = await axios.get(
+        `https://api.relay.chowdeck.com/relay/delivery/${encodeURIComponent(order.chowdeckReference)}`,
+        { headers: { Authorization: `Bearer ${apiKey}` } },
+      );
+      const data = response.data?.data;
+      if (data?.status) {
+        order.chowdeckDeliveryStatus = data.status;
+        await this.orderRepo.save(order);
+      }
+      return response.data;
+    } catch (error) {
+      throw new BadRequestException(
+        `Chowdeck delivery tracking failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  private async getOrderForChowdeck(orderId: string, requester: User): Promise<Order> {
+    const order = await this.orderRepo.findOne({
+      where: { id: orderId },
+      relations: ['buyer', 'product', 'product.seller'],
+    });
+    if (!order) throw new NotFoundException('Order not found');
+    if (order.buyer.id !== requester.id && order.product.seller.id !== requester.id) {
+      throw new ForbiddenException('You do not have access to this order');
+    }
+    return order;
+  }
+
+  private chowdeckDeliveryResult(order: Order, message = 'Delivery created successfully') {
+    return {
+      status: 'success',
+      message,
+      data: {
+        id: order.chowdeckDeliveryId,
+        reference: order.chowdeckReference,
+        delivery_price: order.chowdeckDeliveryPrice,
+        delivery_pin: Number(order.chowdeckDeliveryPin),
+        tracking_url: order.chowdeckTrackingUrl,
+        status: order.chowdeckDeliveryStatus,
+      },
+    };
+  }
+
+  private async getChowdeckFeeQuote(
+    seller: User,
+    destinationLatitude: number,
+    destinationLongitude: number,
+  ): Promise<{ deliveryAmount: number; feeId: number }> {
+    if (seller.businessLatitude == null || seller.businessLongitude == null) {
+      throw new BadRequestException(
+        `Seller ${seller.id} pickup coordinates are required for Chowdeck fee calculation`,
+      );
+    }
+    const apiKey = process.env.CHOWDECK_API_KEY;
+    if (!apiKey) throw new BadRequestException('Chowdeck fee service is not configured');
+    try {
+      const response = await axios.post(
+        'https://api.relay.chowdeck.com/relay/delivery/fee',
+        {
+          source_address: {
+            latitude: Number(seller.businessLatitude),
+            longitude: Number(seller.businessLongitude),
+          },
+          destination_address: {
+            latitude: destinationLatitude,
+            longitude: destinationLongitude,
+          },
+        },
+        { headers: { Authorization: `Bearer ${apiKey}` } },
+      );
+      const deliveryKobo = Number(response.data?.data?.delivery_amount);
+      const feeId = Number(response.data?.data?.id);
+      if (!Number.isFinite(deliveryKobo) || !Number.isInteger(feeId)) {
+        throw new Error('Chowdeck response did not contain a valid delivery_amount and id');
+      }
+      return { deliveryAmount: deliveryKobo / 100, feeId };
+    } catch (error) {
+      throw new BadRequestException(
+        `Chowdeck delivery calculation failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  private async notifyBuyerOrderShipped(orders: Order[]): Promise<void> {
+    const buyer = orders[0]?.buyer;
+    if (!buyer?.email || orders.length === 0) return;
+
+    const orderId = orders[0].bulkOrderId || orders[0].id;
+    const trackingNumber = orders
+      .map((order) => order.trackingNumber)
+      .filter(
+        (tracking, index, trackings) =>
+          tracking && trackings.indexOf(tracking) === index,
+      )
+      .join(', ');
+
+    try {
+      await this.emailService.sendBuyerOrderShippedEmail({
+        buyerEmail: buyer.email,
+        buyerName: buyer.fullName,
+        orderId,
+        items: orders.map((order) => ({
+          productName: order.product?.name || 'Product',
+          quantity: order.quantity,
+        })),
+        trackingNumber: trackingNumber || undefined,
+        shippedAt: this.formatDateTime(orders[0].shippedAt || new Date()),
+        trackingUrl: this.buildBuyerOrderUrl(orderId, 'track'),
+      });
+    } catch (error) {
+      console.error('Buyer shipped email failed:', String(error));
+    }
+  }
+
+  private async notifyBuyerOrderDelivered(orders: Order[]): Promise<void> {
+    const buyer = orders[0]?.buyer;
+    if (!buyer?.email || orders.length === 0) return;
+
+    const orderId = orders[0].bulkOrderId || orders[0].id;
+    try {
+      await this.emailService.sendBuyerOrderDeliveredEmail({
+        buyerEmail: buyer.email,
+        buyerName: buyer.fullName,
+        orderId,
+        items: orders.map((order) => ({
+          productName: order.product?.name || 'Product',
+          quantity: order.quantity,
+          sellerPhoneNumber: order.product?.seller?.phoneNumber || undefined,
+        })),
+        deliveredAt: this.formatDateTime(orders[0].deliveredAt || new Date()),
+        confirmationUrl: this.buildBuyerOrderUrl(orderId, 'confirm'),
+      });
+    } catch (error) {
+      console.error('Buyer delivered email failed:', String(error));
+    }
   }
 
   async createBulk(
@@ -140,7 +399,10 @@ export class OrdersService {
   ): Promise<{
     orderId: string;
     totalPrice: number;
+    chowdeckTotalPrice: number | null;
     bulkDeliveryFee: number;
+    chowdeckBulkDeliveryFee: number | null;
+    deliveryProvider: DeliveryProvider | null;
     bulkEstimatedPlatformFee: number;
     bulkEstimatedSellerAmount: number;
     orders: Order[];
@@ -155,13 +417,16 @@ export class OrdersService {
       throw new BadRequestException('At least one product is required');
     }
 
-    return this.orderRepo.manager.transaction(async (manager) => {
+    const result = await this.orderRepo.manager.transaction(async (manager) => {
       const createdOrders: Order[] = [];
       const orderId = `bulk-${randomUUID()}`;
       let totalPrice = 0;
+      let chowdeckTotalPrice = 0;
       let bulkDeliveryFee = 0;
+      let chowdeckBulkDeliveryFee = 0;
       let bulkEstimatedPlatformFee = 0;
       let bulkEstimatedSellerAmount = 0;
+      const platformCharges = this.platformCharges;
 
       for (let i = 0; i < dto.productIds.length; i++) {
         const productId = dto.productIds[i];
@@ -196,10 +461,25 @@ export class OrdersService {
           dto,
           buyer,
         );
+        const chowdeckQuote = dto.deliveryAddress
+          ? await this.getChowdeckFeeQuote(
+              product.seller,
+              dto.deliveryAddress.latitude,
+              dto.deliveryAddress.longitude,
+            )
+          : null;
         const deliveryFee = deliveryDetails.deliveryFee * quantity;
-        const orderTotal = lineTotal + deliveryFee;
+        const displayDeliveryFee = deliveryFee + platformCharges;
+        const orderTotal = lineTotal + displayDeliveryFee;
+        const chowdeckOrderTotal = chowdeckQuote
+          ? lineTotal + chowdeckQuote.deliveryAmount + platformCharges
+          : null;
         totalPrice += orderTotal;
-        bulkDeliveryFee += deliveryFee;
+        if (chowdeckOrderTotal != null) chowdeckTotalPrice += chowdeckOrderTotal;
+        bulkDeliveryFee += displayDeliveryFee;
+        if (chowdeckQuote) {
+          chowdeckBulkDeliveryFee += chowdeckQuote.deliveryAmount;
+        }
         const estimatedPlatformFee = Math.floor(lineTotal * 0.12);
         const estimatedSellerAmount = Math.floor(
           lineTotal - estimatedPlatformFee,
@@ -214,13 +494,17 @@ export class OrdersService {
           unitPrice: product.price,
           totalPrice: orderTotal,
           bulkOrderId: orderId,
-          deliveryAddress: deliveryDetails.deliveryAddress,
+          deliveryAddress: dto.deliveryAddress?.address || deliveryDetails.deliveryAddress,
           deliveryCity: deliveryDetails.deliveryCity,
           pickupStore: dto.pickupStore,
           deliveryState: deliveryDetails.deliveryState,
           departureZone: deliveryDetails.departureZone,
           arrivalZone: deliveryDetails.arrivalZone,
-          deliveryFee,
+          deliveryFee: displayDeliveryFee,
+          chowdeckDeliveryAmount: chowdeckQuote?.deliveryAmount ?? null,
+          chowdeckFeeId: chowdeckQuote?.feeId ?? null,
+          chowdeckTotalPrice: chowdeckOrderTotal,
+          platformCharges,
           estimatedDeliveryDays: deliveryDetails.estimatedDeliveryDays,
           platformFee: null as any,
           sellerAmount: null as any,
@@ -237,6 +521,12 @@ export class OrdersService {
 
       for (const order of createdOrders) {
         order.bulkDeliveryFee = bulkDeliveryFee;
+        order.chowdeckBulkDeliveryFee = dto.deliveryAddress
+          ? chowdeckBulkDeliveryFee
+          : null;
+        order.chowdeckBulkTotalPrice = dto.deliveryAddress
+          ? chowdeckTotalPrice
+          : null;
         order.bulkEstimatedPlatformFee = bulkEstimatedPlatformFee;
         order.bulkEstimatedSellerAmount = bulkEstimatedSellerAmount;
       }
@@ -246,18 +536,80 @@ export class OrdersService {
       return {
         orderId,
         totalPrice,
+        chowdeckTotalPrice: dto.deliveryAddress ? chowdeckTotalPrice : null,
         bulkDeliveryFee,
+        chowdeckBulkDeliveryFee: dto.deliveryAddress
+          ? chowdeckBulkDeliveryFee
+          : null,
+        deliveryProvider: null,
         bulkEstimatedPlatformFee,
         bulkEstimatedSellerAmount,
-        orders: createdOrders,
+        orders: createdOrders.map((order) => serializeOrderSeller(order)),
       };
     });
+
+    await this.notifyBuyerOrderCreated(result.orders, buyer, result.orderId);
+    return result;
+  }
+
+  private async notifyBuyerOrderCreated(
+    orders: Order[],
+    buyer: User,
+    orderId: string,
+  ): Promise<void> {
+    if (!buyer.email) return;
+
+    try {
+      await this.emailService.sendBuyerOrderCreatedEmail({
+        buyerEmail: buyer.email,
+        buyerName: buyer.fullName,
+        orderId,
+        items: orders.map((order) => ({
+          productName: order.product?.name || 'Product',
+          quantity: order.quantity,
+          productPrice: this.formatCurrency(Number(order.unitPrice)),
+        })),
+        totalAmountPayable: this.formatCurrency(
+          orders.reduce((total, order) => total + Number(order.totalPrice), 0),
+        ),
+        deliveryAddress: orders[0]?.deliveryAddress,
+        deliveryCity: orders[0]?.deliveryCity,
+        deliveryState: orders[0]?.deliveryState,
+        pickupStore: orders[0]?.pickupStore,
+        estimatedDeliveryDays: orders[0]?.estimatedDeliveryDays,
+        paymentUrl: this.buildBuyerOrderUrl(orderId, 'pay'),
+      });
+    } catch (error) {
+      console.error('Buyer order email failed:', String(error));
+    }
+  }
+
+  private buildBuyerOrderUrl(
+    orderId: string,
+    action: 'pay' | 'track' | 'confirm',
+  ): string {
+    return 'https://dojuhealth.com';
+  }
+
+  private formatCurrency(amount: number): string {
+    return new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency: 'NGN',
+      maximumFractionDigits: 2,
+    }).format(amount);
+  }
+
+  private formatDateTime(date: Date): string {
+    return new Intl.DateTimeFormat('en-NG', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(date);
   }
 
   private calculateDeliveryDetails(
     product: Product,
     dto: {
-      deliveryAddress?: string;
+      deliveryAddress?: { address: string; latitude: number; longitude: number };
       deliveryCity?: string;
       deliveryState?: string;
     },
@@ -290,11 +642,13 @@ export class OrdersService {
     const deliveryQuote = this.deliveryRateCardService.getDeliveryFee(
       departureZone,
       arrivalZone,
-      product.size as 'small' | 'medium' | 'large',
+      this.deliveryRateCardService.getPackageSizeForWeight(
+        Number(product.weight),
+      ),
     );
 
     return {
-      deliveryAddress: dto.deliveryAddress || buyer.address,
+      deliveryAddress: dto.deliveryAddress?.address || buyer.address,
       deliveryCity,
       deliveryState: dto.deliveryState || buyer.state,
       departureZone,
@@ -333,7 +687,7 @@ export class OrdersService {
       .getManyAndCount();
 
     return {
-      data,
+      data: data.map((order) => serializeOrderSeller(order)),
       meta: {
         total,
         page: safePage,
@@ -366,7 +720,7 @@ export class OrdersService {
       .getManyAndCount();
 
     return {
-      data,
+      data: data.map((order) => serializeOrderSeller(order)),
       meta: {
         total,
         page: safePage,
@@ -380,27 +734,113 @@ export class OrdersService {
     sellerId,
     page = 1,
     limit = 10,
+    orderId,
+    productId,
+    orderStatus,
+    paymentStatus,
+    bulkOrderId,
+    fromDate,
+    toDate,
+    search,
+    sortBy = 'createdAt',
+    sortOrder = 'DESC',
   }: {
     sellerId: string;
     page?: number;
     limit?: number;
+    orderId?: string;
+    productId?: string;
+    orderStatus?: string;
+    paymentStatus?: string;
+    bulkOrderId?: string;
+    fromDate?: string;
+    toDate?: string;
+    search?: string;
+    sortBy?: string;
+    sortOrder?: string;
   }) {
     const safePage = Math.max(page, 1);
     const safeLimit = Math.min(Math.max(limit, 1), 100);
+    const validOrderStatuses = Object.values(OrderStatus) as string[];
+    const validPaymentStatuses = Object.values(PaymentStatus) as string[];
 
-    const [data, total] = await this.orderRepo
+    if (orderStatus && !validOrderStatuses.includes(orderStatus)) {
+      throw new BadRequestException(`Invalid orderStatus: ${orderStatus}`);
+    }
+    if (paymentStatus && !validPaymentStatuses.includes(paymentStatus)) {
+      throw new BadRequestException(`Invalid paymentStatus: ${paymentStatus}`);
+    }
+
+    const parsedFromDate = fromDate ? new Date(fromDate) : undefined;
+    const parsedToDate = toDate ? new Date(toDate) : undefined;
+    if (parsedFromDate && Number.isNaN(parsedFromDate.getTime())) {
+      throw new BadRequestException('fromDate must be a valid date');
+    }
+    if (parsedToDate && Number.isNaN(parsedToDate.getTime())) {
+      throw new BadRequestException('toDate must be a valid date');
+    }
+    if (parsedToDate && /^\d{4}-\d{2}-\d{2}$/.test(toDate ?? '')) {
+      parsedToDate.setHours(23, 59, 59, 999);
+    }
+    if (parsedFromDate && parsedToDate && parsedFromDate > parsedToDate) {
+      throw new BadRequestException('fromDate must be before or equal to toDate');
+    }
+
+    const sortableColumns: Record<string, string> = {
+      createdAt: 'order.createdAt',
+      updatedAt: 'order.updatedAt',
+      totalPrice: 'order.totalPrice',
+      orderStatus: 'order.orderStatus',
+      paymentStatus: 'order.paymentStatus',
+    };
+    if (!sortableColumns[sortBy]) {
+      throw new BadRequestException(
+        `sortBy must be one of: ${Object.keys(sortableColumns).join(', ')}`,
+      );
+    }
+    const safeSortOrder = sortOrder.toUpperCase();
+    if (!['ASC', 'DESC'].includes(safeSortOrder)) {
+      throw new BadRequestException('sortOrder must be ASC or DESC');
+    }
+
+    const query = this.orderRepo
       .createQueryBuilder('order')
       .leftJoinAndSelect('order.buyer', 'buyer')
       .leftJoinAndSelect('order.product', 'product')
       .leftJoinAndSelect('product.seller', 'seller')
-      .where('product.sellerId = :sellerId', { sellerId })
-      .orderBy('order.createdAt', 'DESC')
+      .where('product.sellerId = :sellerId', { sellerId });
+
+    if (orderId) query.andWhere('order.id = :orderId', { orderId });
+    if (productId) query.andWhere('product.id = :productId', { productId });
+    if (orderStatus) query.andWhere('order.orderStatus = :orderStatus', { orderStatus });
+    if (paymentStatus) query.andWhere('order.paymentStatus = :paymentStatus', { paymentStatus });
+    if (bulkOrderId) query.andWhere('order.bulkOrderId = :bulkOrderId', { bulkOrderId });
+    if (parsedFromDate) {
+      query.andWhere('order.createdAt >= :fromDate', { fromDate: parsedFromDate });
+    }
+    if (parsedToDate) {
+      query.andWhere('order.createdAt <= :toDate', { toDate: parsedToDate });
+    }
+    if (search?.trim()) {
+      query.andWhere(
+        new Brackets((qb) => {
+          qb.where('CAST(order.id AS text) ILIKE :search', { search: `%${search.trim()}%` })
+            .orWhere('product.name ILIKE :search', { search: `%${search.trim()}%` })
+            .orWhere('order.trackingNumber ILIKE :search', { search: `%${search.trim()}%` })
+            .orWhere('buyer.fullName ILIKE :search', { search: `%${search.trim()}%` })
+            .orWhere('buyer.email ILIKE :search', { search: `%${search.trim()}%` });
+        }),
+      );
+    }
+
+    const [data, total] = await query
+      .orderBy(sortableColumns[sortBy], safeSortOrder as 'ASC' | 'DESC')
       .skip((safePage - 1) * safeLimit)
       .take(safeLimit)
       .getManyAndCount();
 
     return {
-      data,
+      data: data.map((order) => serializeOrderSeller(order)),
       meta: {
         total,
         page: safePage,
@@ -420,13 +860,16 @@ export class OrdersService {
       throw new NotFoundException('Order not found');
     }
 
-    return order;
+    return serializeOrderSeller(order);
   }
 
   async findByBulkOrderId(bulkOrderId: string): Promise<{
     orderId: string;
     totalPrice: number;
+    chowdeckTotalPrice: number | null;
     bulkDeliveryFee: number;
+    chowdeckBulkDeliveryFee: number | null;
+    deliveryProvider: DeliveryProvider | null;
     bulkEstimatedPlatformFee: number;
     bulkEstimatedSellerAmount: number;
     orders: Order[];
@@ -449,6 +892,18 @@ export class OrdersService {
     const bulkDeliveryFee =
       Number(orders[0]?.bulkDeliveryFee ?? 0) ||
       orders.reduce((sum, order) => sum + Number(order.deliveryFee ?? 0), 0);
+    const hasChowdeckQuote = orders.some((order) => order.chowdeckFeeId != null);
+    const chowdeckTotalPrice = hasChowdeckQuote
+      ? Number(orders[0]?.chowdeckBulkTotalPrice ?? 0) ||
+        orders.reduce(
+          (sum, order) => sum + Number(order.chowdeckTotalPrice ?? order.totalPrice),
+          0,
+        )
+      : null;
+    const chowdeckBulkDeliveryFee = hasChowdeckQuote
+      ? Number(orders[0]?.chowdeckBulkDeliveryFee ?? 0) ||
+        orders.reduce((sum, order) => sum + Number(order.chowdeckDeliveryAmount ?? 0), 0)
+      : null;
     const bulkEstimatedPlatformFee =
       Number(orders[0]?.bulkEstimatedPlatformFee ?? 0) ||
       orders.reduce(
@@ -465,10 +920,13 @@ export class OrdersService {
     return {
       orderId: bulkOrderId,
       totalPrice,
+      chowdeckTotalPrice,
       bulkDeliveryFee,
+      chowdeckBulkDeliveryFee,
+      deliveryProvider: orders[0]?.deliveryProvider ?? null,
       bulkEstimatedPlatformFee,
       bulkEstimatedSellerAmount,
-      orders,
+      orders: orders.map((order) => serializeOrderSeller(order)),
     };
   }
 
@@ -521,7 +979,10 @@ export class OrdersService {
     }
 
     await this.orderRepo.save(orders);
-    return isBulk ? orders : orders[0];
+    await this.notifyBuyerOrderShipped(orders);
+    return isBulk
+      ? orders.map((order) => serializeOrderSeller(order))
+      : serializeOrderSeller(orders[0]);
   }
 
   /**
@@ -542,7 +1003,10 @@ export class OrdersService {
     }
 
     await this.orderRepo.save(orders);
-    return isBulk ? orders : orders[0];
+    await this.notifyBuyerOrderDelivered(orders);
+    return isBulk
+      ? orders.map((order) => serializeOrderSeller(order))
+      : serializeOrderSeller(orders[0]);
   }
 
   /**
@@ -568,7 +1032,9 @@ export class OrdersService {
     }
 
     await this.orderRepo.save(orders);
-    return isBulk ? orders : orders[0];
+    return isBulk
+      ? orders.map((order) => serializeOrderSeller(order))
+      : serializeOrderSeller(orders[0]);
   }
 
   async cancel(id: string, user: User): Promise<Order | Order[]> {
@@ -595,20 +1061,24 @@ export class OrdersService {
         );
       }
 
+      const stockWasDeducted = order.paymentStatus === PaymentStatus.PAID;
+
       // If payment is already in escrow, refund will be handled by payment service
-      if (order.paymentStatus === PaymentStatus.PAID) {
+      if (stockWasDeducted) {
         // Payment service will handle the refund
         order.paymentStatus = PaymentStatus.PENDING_REFUND;
       }
 
-      // Restore product stock
-      const product = await this.productRepo.findOne({
-        where: { id: order.product.id },
-      });
+      // Restore stock only when payment already deducted it.
+      if (stockWasDeducted) {
+        const product = await this.productRepo.findOne({
+          where: { id: order.product.id },
+        });
 
-      if (product) {
-        product.stock += order.quantity;
-        await this.productRepo.save(product);
+        if (product) {
+          product.stock += order.quantity;
+          await this.productRepo.save(product);
+        }
       }
 
       // Update order status
@@ -617,7 +1087,9 @@ export class OrdersService {
     }
 
     await this.orderRepo.save(orders);
-    return isBulk ? orders : orders[0];
+    return isBulk
+      ? orders.map((order) => serializeOrderSeller(order))
+      : serializeOrderSeller(orders[0]);
   }
 
   private async getOrdersByIdOrBulk(id: string) {
@@ -654,24 +1126,29 @@ export class OrdersService {
     }
 
     // Auto-confirm order and reduce stock when payment is successful
-    if (
+    const shouldDeductStock =
       paymentStatus === PaymentStatus.PAID &&
-      order.orderStatus === OrderStatus.PENDING
-    ) {
+      order.orderStatus === OrderStatus.PENDING;
+
+    if (shouldDeductStock) {
       order.orderStatus = OrderStatus.CONFIRMED;
-
-      // Reduce product stock now that payment is confirmed
-      const product = await this.productRepo.findOne({
-        where: { id: order.product.id },
-      });
-
-      if (product) {
-        product.stock -= order.quantity;
-        await this.productRepo.save(product);
-      }
     }
 
-    return this.orderRepo.save(order);
+    const savedOrder = await this.orderRepo.manager.transaction(
+      async (manager) => {
+        if (shouldDeductStock) {
+          await this.reserveStock(
+            manager,
+            order.product.id,
+            order.quantity,
+            order.product.name,
+          );
+        }
+
+        return manager.save(Order, order);
+      },
+    );
+    return serializeOrderSeller(savedOrder);
   }
 
   async getOrdersByProduct(productId: string): Promise<Order[]> {
@@ -680,6 +1157,27 @@ export class OrdersService {
       relations: ['buyer'],
       order: { createdAt: 'DESC' },
     });
+  }
+
+  private async reserveStock(
+    manager: EntityManager,
+    productId: string,
+    quantity: number,
+    productName: string,
+  ): Promise<void> {
+    const result = await manager
+      .createQueryBuilder()
+      .update(Product)
+      .set({ stock: () => `stock - ${quantity}` })
+      .where('id = :productId', { productId })
+      .andWhere('stock >= :quantity', { quantity })
+      .execute();
+
+    if (result.affected !== 1) {
+      throw new BadRequestException(
+        `Insufficient stock for "${productName}". Requested: ${quantity}`,
+      );
+    }
   }
 
   async getTotalRevenue(sellerId?: string): Promise<number> {

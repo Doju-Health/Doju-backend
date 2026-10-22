@@ -1,5 +1,6 @@
-import { IsEmail, IsEnum, IsNotEmpty, IsOptional, MinLength } from 'class-validator';
-import { UserRole } from 'src/users/enums/user.enum';
+import { IsEmail, IsEnum, IsIn, IsNotEmpty, IsOptional, Matches, ValidateIf } from 'class-validator';
+import { SellerType, UserRole } from 'src/users/enums/user.enum';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 
 export class RegisterDto {
     @IsNotEmpty()
@@ -8,11 +9,23 @@ export class RegisterDto {
     @IsEmail()
     email: string;
 
-    @MinLength(8)
+    @Matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/, {
+        message: 'Password must be at least 8 characters long and contain uppercase and lowercase letters, a number, and a special character',
+    })
     password: string;
 
-    @IsEnum(UserRole)
+    @IsIn([UserRole.BUYER, UserRole.SELLER])
     role: UserRole
+
+    @ApiPropertyOptional({
+        enum: Object.values(SellerType),
+        description:
+            'Required when role is seller. Allowed values: manufacturer, supplier, vendor.',
+        example: SellerType.VENDOR,
+    })
+    @ValidateIf((dto: RegisterDto) => dto.role === UserRole.SELLER)
+    @IsEnum(SellerType)
+    sellerType?: SellerType;
 
     @IsNotEmpty()
     phoneNumber: string;

@@ -5,19 +5,21 @@ import {
   InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, Brackets, IsNull } from 'typeorm';
+import { EntityManager, Repository, Brackets, IsNull } from 'typeorm';
 import { Payment } from './entities/payment.entity';
 import { ConfigService } from '@nestjs/config';
 import axios from 'axios';
 import { Order } from 'src/orders/entities/order.entity';
 import { Product } from 'src/products/entities/product-entity';
 import { User } from 'src/users/entities/user.entity';
-import { PaymentStatus, OrderStatus } from 'src/orders/enums/order.enum';
+import { DeliveryProvider, PaymentStatus, OrderStatus } from 'src/orders/enums/order.enum';
 import { InitiatePaymentDto } from './dto/payment.dto';
 import { EscrowStatus } from './entities/payment.entity';
 import { UserRole } from 'src/users/enums/user.enum';
 import * as crypto from 'crypto';
 import { HttpsProxyAgent } from 'https-proxy-agent';
+import { EmailService } from 'src/email/email.service';
+import { serializeOrderSeller } from 'src/common/services/public-seller.util';
 
 @Injectable()
 export class PaymentsService {
@@ -33,6 +35,7 @@ export class PaymentsService {
     @InjectRepository(Product)
     private productRepo: Repository<Product>,
     private configService: ConfigService,
+    private emailService: EmailService,
   ) {
     this.flwSecretKey = this.configService.get<string>('FLW_SECRET_KEY') ?? '';
     this.flwWebhookHash =
@@ -42,7 +45,12 @@ export class PaymentsService {
   // Initialize payment with Flutterwave
 
   async initiatePayment(dto: InitiatePaymentDto, buyer: User) {
-    if (!dto.orderId && !dto.bulkOrderId) {
+    const requestedBulkOrderId =
+      dto.bulkOrderId ??
+      (dto.orderId?.startsWith('bulk-') ? dto.orderId : undefined);
+    const requestedOrderId = requestedBulkOrderId ? undefined : dto.orderId;
+
+    if (!requestedOrderId && !requestedBulkOrderId) {
       throw new BadRequestException('orderId or bulkOrderId is required');
     }
 
@@ -50,10 +58,12 @@ export class PaymentsService {
     let orders: Order[] = [];
     let totalAmount = 0;
     let bulkOrderId: string | undefined;
+    let deliveryFee = 0;
+    let deliveryProvider = dto.deliveryProvider ?? DeliveryProvider.JUMIA;
 
-    if (dto.bulkOrderId) {
+    if (requestedBulkOrderId) {
       orders = await this.orderRepo.find({
-        where: { bulkOrderId: dto.bulkOrderId },
+        where: { bulkOrderId: requestedBulkOrderId },
         relations: ['buyer', 'product', 'product.seller'],
         order: { createdAt: 'DESC' },
       });
@@ -85,12 +95,11 @@ export class PaymentsService {
         throw new BadRequestException('Cannot pay for cancelled order');
       }
 
-      totalAmount = orders.reduce((sum, o) => sum + Number(o.totalPrice), 0);
-      bulkOrderId = dto.bulkOrderId;
+      bulkOrderId = requestedBulkOrderId;
       order = orders[0];
-    } else if (dto.orderId) {
+    } else if (requestedOrderId) {
       order = await this.orderRepo.findOne({
-        where: { id: dto.orderId },
+        where: { id: requestedOrderId },
         relations: ['buyer', 'product', 'product.seller'],
       });
 
@@ -113,7 +122,6 @@ export class PaymentsService {
         throw new BadRequestException('Cannot pay for cancelled order');
       }
 
-      totalAmount = Number(order.totalPrice);
       orders = [order];
     }
 
@@ -121,10 +129,49 @@ export class PaymentsService {
       throw new NotFoundException('Order not found');
     }
 
-    const deliveryFee = Number(order.deliveryFee ?? 0);
-    const productAmount = Number(order.totalPrice) - deliveryFee;
+    deliveryProvider = dto.deliveryProvider ?? order.deliveryProvider ?? DeliveryProvider.JUMIA;
+    if (
+      deliveryProvider === DeliveryProvider.CHOWDECK &&
+      orders.some(
+        (item) =>
+          item.chowdeckTotalPrice == null ||
+          item.chowdeckDeliveryAmount == null ||
+          item.chowdeckFeeId == null,
+      )
+    ) {
+      throw new BadRequestException(
+        'Chowdeck delivery pricing is unavailable for one or more orders',
+      );
+    }
+
+    totalAmount = orders.reduce(
+      (sum, item) =>
+        sum +
+        (deliveryProvider === DeliveryProvider.CHOWDECK
+          ? Number(item.chowdeckTotalPrice)
+          : Number(item.totalPrice)),
+      0,
+    );
+    const platformCharges = orders.reduce(
+      (sum, item) => sum + Number(item.platformCharges ?? 0),
+      0,
+    );
+    deliveryFee = orders.reduce((sum, item) => {
+      const itemPlatformCharges = Number(item.platformCharges ?? 0);
+      const fee = deliveryProvider === DeliveryProvider.CHOWDECK
+        ? Number(item.chowdeckDeliveryAmount ?? 0)
+        : Math.max(0, Number(item.deliveryFee ?? 0) - itemPlatformCharges);
+      return sum + fee;
+    }, 0);
+    const productAmount = orders.reduce(
+      (sum, item) => sum + Number(item.unitPrice) * item.quantity,
+      0,
+    );
+    orders.forEach((item) => (item.deliveryProvider = deliveryProvider));
     const estimatedPlatformFee = Math.floor(productAmount * 0.12);
-    const estimatedSellerAmount = Math.floor(productAmount - estimatedPlatformFee);
+    const estimatedSellerAmount = Math.floor(
+      productAmount - estimatedPlatformFee,
+    );
 
     const reference = this.generateReference();
 
@@ -185,6 +232,8 @@ export class PaymentsService {
         escrowStatus: EscrowStatus.HELD,
         provider: 'FLUTTERWAVE',
         deliveryFee,
+        deliveryProvider,
+        platformCharges,
         platformFee: null as any,
         sellerAmount: null as any,
         estimatedPlatformFee,
@@ -192,10 +241,13 @@ export class PaymentsService {
       });
 
       await this.paymentRepo.save(payment);
+      await this.orderRepo.save(orders);
 
       return {
         authorizationUrl: link,
         reference,
+        amount: totalAmount,
+        deliveryProvider,
       };
     } catch (error) {
       console.error(
@@ -330,7 +382,12 @@ export class PaymentsService {
       .getManyAndCount();
 
     return {
-      data,
+      data: data.map((payment) => ({
+        ...payment,
+        order: payment.order
+          ? serializeOrderSeller(payment.order)
+          : payment.order,
+      })),
       meta: {
         total,
         page: safePage,
@@ -349,7 +406,11 @@ export class PaymentsService {
       .leftJoinAndSelect('product.seller', 'seller')
       .where('payment.id = :id', { id });
 
-    if (user && user.role !== UserRole.ADMIN) {
+    if (
+      user &&
+      user.role !== UserRole.ADMIN &&
+      user.role !== UserRole.SUPER_ADMIN
+    ) {
       qb.andWhere(
         new Brackets((subQb) => {
           subQb
@@ -364,7 +425,16 @@ export class PaymentsService {
       throw new NotFoundException('Transaction not found');
     }
 
-    return payment;
+    if (user?.role === UserRole.ADMIN || user?.role === UserRole.SUPER_ADMIN) {
+      return payment;
+    }
+
+    return {
+      ...payment,
+      order: payment.order
+        ? serializeOrderSeller(payment.order)
+        : payment.order,
+    };
   }
 
   /**
@@ -398,7 +468,12 @@ export class PaymentsService {
       }
 
       if (payment.status === PaymentStatus.PAID) {
-        return payment; // already handled, skip
+        return {
+          ...payment,
+          order: payment.order
+            ? serializeOrderSeller(payment.order)
+            : payment.order,
+        }; // already handled, skip
       }
       // Update payment record
       payment.status =
@@ -413,10 +488,12 @@ export class PaymentsService {
         payment.escrowHeldAt = new Date();
 
         const bulkOrderId = meta?.bulkOrderId;
+        let ordersToNotify: Order[];
 
         if (bulkOrderId) {
           const bulkOrders = await this.orderRepo.find({
             where: { bulkOrderId },
+            relations: ['buyer', 'product', 'product.seller'],
           });
           if (bulkOrders.length === 0)
             throw new NotFoundException('Bulk order not found');
@@ -427,24 +504,87 @@ export class PaymentsService {
             order.transactionId = tx_ref;
           }
 
-          await this.orderRepo.save(bulkOrders);
+          await this.paymentRepo.manager.transaction(async (manager) => {
+            for (const order of bulkOrders) {
+              await this.decrementProductStock(
+                manager,
+                order.product.id,
+                order.quantity,
+                order.product.name,
+              );
+            }
+
+            await manager.save(Order, bulkOrders);
+            await manager.save(Payment, payment);
+          });
+          ordersToNotify = bulkOrders;
         } else {
           payment.order.paymentStatus = PaymentStatus.PAID;
           payment.order.orderStatus = OrderStatus.CONFIRMED;
           payment.order.transactionId = tx_ref;
 
-          await this.orderRepo.save(payment.order);
+          await this.paymentRepo.manager.transaction(async (manager) => {
+            await this.decrementProductStock(
+              manager,
+              payment.order.product.id,
+              payment.order.quantity,
+              payment.order.product.name,
+            );
+
+            await manager.save(Order, payment.order);
+            await manager.save(Payment, payment);
+          });
+          ordersToNotify = [payment.order];
         }
+
+        await this.notifySellerPurchaseEmails(
+          ordersToNotify,
+          payment.paidAt ?? new Date(),
+          tx_ref,
+        );
+        await this.notifyBuyerPaymentConfirmation(
+          ordersToNotify,
+          payment.paidAt ?? new Date(),
+        );
       }
 
-      await this.paymentRepo.save(payment);
-      return payment;
+      if (status !== 'successful') {
+        await this.paymentRepo.save(payment);
+      }
+      return {
+        ...payment,
+        order: payment.order
+          ? serializeOrderSeller(payment.order)
+          : payment.order,
+      };
     } catch (error) {
       console.error(
         'Payment verification error:',
         error.response?.data || error.message,
       );
       throw new InternalServerErrorException('Failed to verify payment');
+    }
+  }
+
+  private async decrementProductStock(
+    manager: EntityManager,
+    productId: string,
+    quantity: number,
+    productName: string,
+  ): Promise<void> {
+    const result = await manager
+      .createQueryBuilder()
+      .update(Product)
+      .set({ stock: () => 'stock - :quantity' })
+      .where('id = :productId', { productId })
+      .andWhere('stock >= :quantity', { quantity })
+      .setParameters({ quantity })
+      .execute();
+
+    if (result.affected !== 1) {
+      throw new BadRequestException(
+        `Insufficient stock for "${productName}". Requested: ${quantity}`,
+      );
     }
   }
 
@@ -499,6 +639,187 @@ export class PaymentsService {
     }
   }
 
+  private async notifySellerPurchaseEmails(
+    orders: Order[],
+    paidAt: Date,
+    txRef: string,
+  ): Promise<void> {
+    const purchaseTime = this.formatDateTime(paidAt);
+
+    const notifications = orders
+      .map(async (order) => {
+        const seller = order.product?.seller;
+        if (!seller?.email) {
+          return;
+        }
+
+        const buyerName =
+          order.buyer?.fullName || order.buyer?.email || 'Buyer';
+        const buyerLocation = this.formatBuyerLocation(order);
+        const expectedDeliveryDate = this.formatExpectedDeliveryDate(
+          order,
+          paidAt,
+        );
+
+        const orderDetailsUrl = this.buildOrderDetailsUrl(order.id, txRef);
+
+        await this.emailService.sendProductPurchasedEmail({
+          sellerEmail: seller.email,
+          sellerName: seller.fullName,
+          buyerName,
+          buyerPhoneNumber: order.buyer?.phoneNumber || undefined,
+          buyerLocation,
+          productName: order.product?.name || 'your product',
+          quantity: order.quantity,
+          unitPrice: this.formatCurrency(Number(order.unitPrice)),
+          totalPaid: this.formatCurrency(
+            order.deliveryProvider === DeliveryProvider.CHOWDECK
+              ? Number(order.chowdeckTotalPrice ?? order.totalPrice)
+              : Number(order.totalPrice),
+          ),
+          purchaseTime,
+          expectedDeliveryDate,
+          deliveryAddress: order.deliveryAddress || undefined,
+          deliveryFee: this.formatCurrency(
+            order.deliveryProvider === DeliveryProvider.CHOWDECK
+              ? Number(order.chowdeckDeliveryAmount ?? 0) + Number(order.platformCharges ?? 0)
+              : Number(order.deliveryFee ?? 0),
+          ),
+          pickupStore: order.pickupStore || undefined,
+          orderDetailsUrl,
+        });
+      })
+      .map((task) =>
+        task.catch((error) => {
+          console.error(
+            'Seller purchase email failed:',
+            error?.message || error,
+          );
+        }),
+      );
+
+    await Promise.all(notifications);
+  }
+
+  private async notifyBuyerPaymentConfirmation(
+    orders: Order[],
+    paidAt: Date,
+  ): Promise<void> {
+    const buyer = orders[0]?.buyer;
+    if (!buyer?.email) return;
+
+    try {
+      await this.emailService.sendBuyerPaymentConfirmationEmail({
+        buyerEmail: buyer.email,
+        buyerName: buyer.fullName,
+        orderId: orders[0]?.bulkOrderId || orders[0].id,
+        items: orders.map((order) => ({
+          productName: order.product?.name || 'Product',
+          quantity: order.quantity,
+          productPrice: this.formatCurrency(Number(order.unitPrice)),
+        })),
+        amountPaid: this.formatCurrency(
+          orders.reduce(
+            (total, order) =>
+              total +
+              (order.deliveryProvider === DeliveryProvider.CHOWDECK
+                ? Number(order.chowdeckTotalPrice ?? order.totalPrice)
+                : Number(order.totalPrice)),
+            0,
+          ),
+        ),
+        paymentDate: this.formatDateTime(paidAt),
+        estimatedDeliveryDate: orders
+          .map((order) => this.formatExpectedDeliveryDate(order, paidAt))
+          .filter((date, index, dates) => dates.indexOf(date) === index)
+          .join('; '),
+        pickupStore:
+          orders
+            .map((order) => order.pickupStore)
+            .filter(
+              (store, index, stores) =>
+                store && stores.indexOf(store) === index,
+            )
+            .join(', ') || undefined,
+        trackingUrl: this.buildBuyerOrderUrl(
+          orders[0]?.bulkOrderId || orders[0].id,
+          'track',
+        ),
+      });
+    } catch (error) {
+      console.error('Buyer payment email failed:', String(error));
+    }
+  }
+
+  private buildBuyerOrderUrl(orderId: string, action: 'pay' | 'track'): string {
+    return 'https://dojuhealth.com';
+  }
+
+  private buildOrderDetailsUrl(orderId: string, txRef: string): string {
+    return 'https://dojuhealth.com';
+  }
+
+  private formatBuyerLocation(order: Order): string {
+    const city = order.deliveryCity || order.buyer?.city;
+    const state = order.deliveryState || order.buyer?.state;
+
+    if (city && state) {
+      return `${city}, ${state}`;
+    }
+
+    return city || state || order.deliveryAddress || 'N/A';
+  }
+
+  private formatExpectedDeliveryDate(order: Order, paidAt: Date): string {
+    const daysText = order.estimatedDeliveryDays?.trim();
+    if (!daysText) {
+      return 'Not available';
+    }
+
+    const matches = daysText.match(/\d+/g);
+    if (!matches || matches.length === 0) {
+      return daysText;
+    }
+
+    const minDays = Number(matches[0]);
+    const maxDays = Number(matches[matches.length - 1]);
+    const start = this.addDays(paidAt, minDays);
+    const end = this.addDays(paidAt, maxDays || minDays);
+
+    if (minDays === maxDays || Number.isNaN(maxDays)) {
+      return this.formatDate(start);
+    }
+
+    return `${this.formatDate(start)} - ${this.formatDate(end)}`;
+  }
+
+  private formatDateTime(date: Date): string {
+    return new Intl.DateTimeFormat('en-NG', {
+      dateStyle: 'medium',
+      timeStyle: 'short',
+    }).format(date);
+  }
+
+  private formatDate(date: Date): string {
+    return new Intl.DateTimeFormat('en-NG', {
+      dateStyle: 'medium',
+    }).format(date);
+  }
+
+  private addDays(date: Date, days: number): Date {
+    const result = new Date(date);
+    result.setDate(result.getDate() + days);
+    return result;
+  }
+
+  private formatCurrency(amount: number): string {
+    return new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency: 'NGN',
+      maximumFractionDigits: 2,
+    }).format(amount);
+  }
+
   /**
    * Confirm delivery and release escrow to seller
    */
@@ -508,9 +829,13 @@ export class PaymentsService {
     bulkOrderId?: string,
     rating?: number,
   ) {
+    const requestedBulkOrderId =
+      bulkOrderId ?? (orderId?.startsWith('bulk-') ? orderId : undefined);
+    const requestedOrderId = requestedBulkOrderId ? undefined : orderId;
+
     const { payment, orders } = await this.getPaymentAndOrders({
-      orderId,
-      bulkOrderId,
+      orderId: requestedOrderId,
+      bulkOrderId: requestedBulkOrderId,
     });
 
     if (!payment) {
@@ -544,6 +869,9 @@ export class PaymentsService {
     orders.forEach((o) => {
       o.orderStatus = OrderStatus.COMPLETED;
     });
+    if (orders.some((o) => o.id === payment.order?.id)) {
+      payment.order.orderStatus = OrderStatus.COMPLETED;
+    }
 
     await this.paymentRepo.save(payment);
     await this.orderRepo.save(orders);
@@ -565,7 +893,9 @@ export class PaymentsService {
   }
 
   private async updateProductRatings(orders: Order[], rating: number) {
-    const uniqueProductIds = [...new Set(orders.map((order) => order.product.id))];
+    const uniqueProductIds = [
+      ...new Set(orders.map((order) => order.product.id)),
+    ];
 
     for (const productId of uniqueProductIds) {
       const product = await this.productRepo.findOne({
@@ -775,26 +1105,54 @@ export class PaymentsService {
       productAmount: number;
       platformFee: number;
       sellerAmount: number;
+      actualDeliveryFee: number;
+      sellerReceives: number;
     };
   }> {
     const balance = await this.getPayoutBalance();
-    const seller = payment.order.product.seller;
-    const amountPaid = Number(payment.order.totalPrice);
-    const deliveryFee = Number(payment.order.deliveryFee ?? 0);
-    const productAmount = amountPaid - deliveryFee;
+    const seller = payment.order?.product?.seller;
+    if (!seller) {
+      throw new NotFoundException(
+        'Seller information is unavailable for this payment',
+      );
+    }
+
+    const amountPaid = Number(payment.amount);
+    const platformCharges = Number(
+      payment.platformCharges ?? payment.order.platformCharges ?? 0,
+    );
+    const actualDeliveryFee = Number(payment.deliveryFee ?? 0);
+    const productAmount = amountPaid - actualDeliveryFee - platformCharges;
     const platformFee = Math.floor(productAmount * 0.12);
     const sellerAmount = Math.floor(productAmount - platformFee);
+    const sellerReceives =
+      sellerAmount +
+      (payment.deliveryProvider === DeliveryProvider.JUMIA
+        ? actualDeliveryFee
+        : 0);
     const breakdown = {
       amountPaid,
-      deliveryFee,
+      deliveryFee: actualDeliveryFee,
+      actualDeliveryFee,
+      platformCharges,
       productAmount,
       platformFee,
       sellerAmount,
+      sellerReceives,
     };
 
     payment.platformFee = platformFee;
-    payment.deliveryFee = deliveryFee;
+    payment.deliveryFee = actualDeliveryFee;
     payment.sellerAmount = sellerAmount;
+    payment.sellerReceives = sellerReceives;
+    payment.order.platformFee = platformFee;
+    payment.order.sellerAmount = sellerAmount;
+    payment.order.sellerReceives = sellerReceives;
+    await this.orderRepo.update(payment.order.id, {
+      platformFee,
+      sellerAmount,
+      sellerReceives,
+    });
     await this.paymentRepo.save(payment);
 
     if (!seller.bankCode || !seller.accountNumber) {
@@ -810,9 +1168,9 @@ export class PaymentsService {
 
     console.log('[Transfer Breakdown]', breakdown);
 
-    if (balance < sellerAmount + 10) {
+    if (balance < sellerReceives + 10) {
       // +10 for transfer fee
-      const message = `Insufficient payout balance (${balance}) - queuing transfer for later. Required: ${sellerAmount + 10}`;
+      const message = `Insufficient payout balance (${balance}) - queuing transfer for later. Required: ${sellerReceives + 10}`;
       console.log(message);
       // Don't throw - cron job will retry
       return { status: 'QUEUED', message, balance, breakdown };
@@ -827,7 +1185,7 @@ export class PaymentsService {
         {
           account_bank: seller.bankCode,
           account_number: seller.accountNumber,
-          amount: sellerAmount,
+          amount: sellerReceives,
           currency: 'NGN',
           narration: `Payout for order ${payment.order.id}`,
           reference: `PAYOUT-${payment.reference}`,
@@ -848,11 +1206,17 @@ export class PaymentsService {
 
       payment.platformFee = platformFee;
       payment.sellerAmount = sellerAmount;
+      payment.sellerReceives = sellerReceives;
       payment.order.platformFee = platformFee;
       payment.order.sellerAmount = sellerAmount;
+      payment.order.sellerReceives = sellerReceives;
       payment.transferReference = transferRes.data.data.reference;
       payment.transferredAt = new Date();
-      await this.orderRepo.save(payment.order);
+      await this.orderRepo.update(payment.order.id, {
+        platformFee,
+        sellerAmount,
+        sellerReceives,
+      });
       await this.paymentRepo.save(payment);
 
       return {
@@ -901,6 +1265,8 @@ export class PaymentsService {
       return this.paymentRepo
         .createQueryBuilder('payment')
         .leftJoinAndSelect('payment.order', 'order')
+        .leftJoinAndSelect('order.product', 'product')
+        .leftJoinAndSelect('product.seller', 'seller')
         .leftJoinAndSelect('payment.buyer', 'buyer')
         .where('order.bulkOrderId = :bulkOrderId', { bulkOrderId })
         .getOne();
@@ -909,7 +1275,7 @@ export class PaymentsService {
     if (orderId) {
       return this.paymentRepo.findOne({
         where: { order: { id: orderId } },
-        relations: ['order', 'buyer'],
+        relations: ['order', 'order.product', 'order.product.seller', 'buyer'],
       });
     }
 

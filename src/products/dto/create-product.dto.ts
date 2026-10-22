@@ -7,11 +7,12 @@ import {
   IsArray,
   IsUUID,
   IsIn,
+  Max,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
-const PRODUCT_SIZES = ['small', 'medium', 'large'] as const;
+const PRODUCT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'] as const;
 
 export class CreateProductDto {
   @ApiProperty({
@@ -49,13 +50,33 @@ export class CreateProductDto {
 
   @ApiProperty({
     enum: PRODUCT_SIZES,
-    example: 'medium',
-    description: 'Package size used for delivery pricing',
+    example: 'M',
+    description: 'Product size label',
   })
   @IsNotEmpty()
   @IsString()
   @IsIn(PRODUCT_SIZES)
-  size: 'small' | 'medium' | 'large';
+  size: 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL' | 'XXXL';
+
+  @ApiProperty({
+    example: 2.5,
+    description: 'Product weight in kilograms (0.01 to 50 kg)',
+  })
+  @Transform(({ value }) =>
+    value === '' || value == null ? value : Number(value),
+  )
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0.01)
+  @Max(50)
+  weight: number;
+
+  @ApiPropertyOptional({
+    example: 'Blue',
+    description: 'Product color',
+  })
+  @IsOptional()
+  @IsString()
+  color?: string;
 
   @ApiProperty({
     example: '123e4567-e89b-12d3-a456-426614174000',

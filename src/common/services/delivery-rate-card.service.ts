@@ -8,12 +8,25 @@ export interface DeliveryRate {
   estimatedDays: string;
 }
 
+export type DeliveryPackageSize = 'small' | 'medium' | 'large';
+
 @Injectable()
 export class DeliveryRateCardService {
   private rateCard: Map<string, DeliveryRate> = new Map();
 
   constructor() {
     this.initializeRateCard();
+  }
+
+  getPackageSizeForWeight(weightKg: number): DeliveryPackageSize {
+    if (!Number.isFinite(weightKg) || weightKg < 0.01 || weightKg > 50) {
+      throw new BadRequestException(
+        'Product weight must be between 0.01 kg and 50 kg',
+      );
+    }
+    if (weightKg <= 5) return 'small';
+    if (weightKg <= 15) return 'medium';
+    return 'large';
   }
 
   private initializeRateCard() {
@@ -194,10 +207,11 @@ export class DeliveryRateCardService {
   getDeliveryFee(
     departureZone: DeliveryZone,
     arrivalZone: DeliveryZone,
-    packageSize: 'small' | 'medium' | 'large',
+    packageSize: DeliveryPackageSize,
   ): { fee: number; estimatedDays: string } {
     const key = `${departureZone}-${arrivalZone}`;
-    const rate = this.rateCard.get(key);
+    const reverseKey = `${arrivalZone}-${departureZone}`;
+    const rate = this.rateCard.get(key) ?? this.rateCard.get(reverseKey);
 
     if (!rate) {
       throw new BadRequestException(

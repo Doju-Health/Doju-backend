@@ -1,5 +1,20 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
-import { IsOptional, IsString } from 'class-validator';
+import { IsNumber, IsOptional, IsString, ValidateNested } from 'class-validator';
+import { Type } from 'class-transformer';
+
+class AddressDto {
+  @IsOptional()
+  @IsString()
+  address?: string;
+
+  @IsOptional()
+  @IsNumber()
+  latitude?: number;
+
+  @IsOptional()
+  @IsNumber()
+  longitude?: number;
+}
 
 export class UpdateProfileDto {
   @ApiPropertyOptional({
@@ -19,20 +34,22 @@ export class UpdateProfileDto {
   phoneNumber?: string;
 
   @ApiPropertyOptional({
-    example: '123 Main Street, Lagos, Nigeria',
-    description: 'Address',
+    example: { address: '123 Main Street, Lagos, Nigeria', latitude: 6.578997, longitude: 3.349467 },
+    description: 'Personal address and delivery coordinates',
   })
   @IsOptional()
-  @IsString()
-  address?: string;
+  @ValidateNested()
+  @Type(() => AddressDto)
+  address?: AddressDto;
 
   @ApiPropertyOptional({
-    example: '123 Main Street, Lagos, Nigeria',
-    description: 'Business address',
+    example: { address: '123 Main Street, Lagos, Nigeria', latitude: 6.601838, longitude: 3.351486 },
+    description: 'Business address and Chowdeck pickup coordinates',
   })
   @IsOptional()
-  @IsString()
-  businessAddress?: string;
+  @ValidateNested()
+  @Type(() => AddressDto)
+  businessAddress?: AddressDto;
 
   @ApiPropertyOptional({
     example: 'Lagos',

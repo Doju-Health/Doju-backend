@@ -5,7 +5,7 @@ import {
   CreateDateColumn,
   UpdateDateColumn,
 } from 'typeorm';
-import { UserRole } from '../enums/user.enum';
+import { SellerType, UserRole, VerificationStatus } from '../enums/user.enum';
 
 @Entity({ name: 'users' })
 export class User {
@@ -31,6 +31,17 @@ export class User {
   })
   role: UserRole;
 
+  @Column({
+    type: 'enum',
+    enum: SellerType,
+    enumName: 'seller_type_enum',
+    nullable: true,
+  })
+  sellerType?: SellerType | null;
+
+  @Column({ default: false })
+  isSuperAdmin: boolean;
+
   // 🔹 Google OAuth fields
   @Column({ nullable: true })
   googleId?: string;
@@ -52,6 +63,9 @@ export class User {
   @Column({ nullable: true })
   passwordResetOtpExpires?: Date;
 
+  @Column({ nullable: true, select: false })
+  refreshTokenHash?: string;
+
   // 🔹 Seller-specific (can be null for buyers)
   @Column({ nullable: true })
   companyName?: string;
@@ -66,6 +80,12 @@ export class User {
   @Column('text', { nullable: true })
   address?: string; // Full address string
 
+  @Column('double precision', { nullable: true })
+  addressLatitude?: number;
+
+  @Column('double precision', { nullable: true })
+  addressLongitude?: number;
+
   @Column({ nullable: true })
   city?: string; // City from address
 
@@ -75,6 +95,12 @@ export class User {
   // 🔹 Seller business address
   @Column('text', { nullable: true })
   businessAddress?: string; // Full business address string
+
+  @Column('double precision', { nullable: true })
+  businessLatitude?: number;
+
+  @Column('double precision', { nullable: true })
+  businessLongitude?: number;
 
   @Column({ nullable: true })
   businessCity?: string; // City from business address
@@ -100,8 +126,16 @@ export class User {
   @Column({ default: false })
   kycApproved?: boolean;
 
-  @Column({ default: false })
-  isVerified: boolean;
+  @Column({ nullable: true })
+  kycRejectionReason?: string;
+
+  @Column({
+    type: 'enum',
+    enum: VerificationStatus,
+    enumName: 'user_verification_status',
+    default: VerificationStatus.UNVERIFIED,
+  })
+  isVerified: VerificationStatus;
 
   @Column({ default: true })
   isActive: boolean;

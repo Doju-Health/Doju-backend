@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Your Product Was Approved 🥳</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background: #f5f5f5;
+        font-family: Arial, Helvetica, sans-serif;
+      }
+
+      .container {
+        width: 100%;
+        max-width: 600px;
+        margin: 40px auto;
+        background: #ffffff;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+      }
+
+      .header {
+        background: #a9f334;
+        padding: 40px 20px;
+        text-align: center;
+        color: #ffffff;
+      }
+
+      .header h1 {
+        margin: 0;
+        font-size: 24px;
+      }
+
+      .content {
+        padding: 40px 30px;
+        color: #333333;
+        font-size: 16px;
+        line-height: 24px;
+      }
+
+      .highlight {
+        background: #f7f7f7;
+        border-left: 4px solid #a9f334;
+        padding: 16px;
+        border-radius: 6px;
+        margin: 24px 0;
+        color: #444;
+      }
+
+      .footer {
+        background: #f7f7f7;
+        text-align: center;
+        padding: 20px;
+        font-size: 14px;
+        color: #666666;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>Your Product Was Approved</h1>
+      </div>
+      <div class="content">
+        <p>Hi {{ sellerName }},</p>
+        <p>Great news. Your product has been reviewed and approved by the admin team.</p>
+        <div class="notice">
+          <strong>Your product is now eligible to appear in approved product listings.</strong>
+        </div>
+        <table class="details">
+          <tr><td>Product name</td><td>{{ productName }}</td></tr>
+          <tr><td>Price</td><td>{{ productPrice }}</td></tr>
+          <tr><td>Description</td><td>{{ productDescription }}</td></tr>
+          <tr><td>Category</td><td>{{ productCategory }}</td></tr>
+        </table>
+        <p>Best regards,<br />The DOJU Team</p>
+      </div>
+      <div class="footer">
+        You are receiving this email because one of your products was approved on DOJU.
+        <br /><br />
+        (c) 2026 DOJU
+      </div>
+    </div>
+  </body>
+</html>

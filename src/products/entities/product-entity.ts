@@ -30,10 +30,16 @@ export class Product {
   @Column({
     type: 'enum',
     enumName: 'products_size_enum',
-    enum: ['small', 'medium', 'large'],
-    default: 'small',
+    enum: ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'],
+    default: 'M',
   })
-  size: 'small' | 'medium' | 'large';
+  size: 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL' | 'XXXL';
+
+  @Column('decimal', { precision: 10, scale: 2, default: 2 })
+  weight: number;
+
+  @Column({ nullable: true })
+  color?: string;
 
   @Column('text', { array: true, nullable: true })
   imageUrl?: string[];
@@ -49,6 +55,9 @@ export class Product {
 
   @Column({ default: false })
   isApproved: boolean;
+
+  @Column('text', { nullable: true })
+  rejectionReason?: string | null;
 
   @Column('decimal', { precision: 3, scale: 2, default: 0 })
   averageRating: number;

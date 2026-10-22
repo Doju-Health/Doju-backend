@@ -16,6 +16,10 @@ import { TrackingModule } from './tracking/tracking.module';
 import { SellerDashboardModule } from './seller-dashboard/seller-dashboard.module';
 import { AdminModule } from './admin/admin.module';
 import { WaitlistModule } from './waitlist/waitlist.module';
+import { ReferralsModule } from './referrals/referrals.module';
+import { AgentsModule } from './agents/agents.module';
+import { AmbassadorsModule } from './ambassadors/ambassadors.module';
+import { BlogsModule } from './blogs/blogs.module';
 
 @Module({
   imports: [
@@ -53,6 +57,10 @@ import { WaitlistModule } from './waitlist/waitlist.module';
     SellerDashboardModule,
     AdminModule,
     WaitlistModule,
+    ReferralsModule,
+    AgentsModule,
+    AmbassadorsModule,
+    BlogsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

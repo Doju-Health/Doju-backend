@@ -3,8 +3,9 @@ import {
   BadRequestException,
   UnauthorizedException,
   NotFoundException,
-  Logger
+  Logger,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
@@ -14,19 +15,23 @@ import { User } from '../users/entities/user.entity';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { EmailService } from '../email/email.service';
-import { UserRole } from 'src/users/enums/user.enum';
+import { UserRole, VerificationStatus } from '../users/enums/user.enum';
 
+const EMAIL_VERIFICATION_OTP_EXPIRY_MS = 5 * 60 * 1000;
+const EMAIL_VERIFICATION_OTP_EXPIRY_LABEL = '5 minutes';
+const PASSWORD_POLICY =
+  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{8,}$/;
 
 @Injectable()
 export class AuthService {
-
- private readonly logger = new Logger(AuthService.name);
+  private readonly logger = new Logger(AuthService.name);
 
   constructor(
     @InjectRepository(User)
     private userRepo: Repository<User>,
     private jwtService: JwtService,
     private emailService: EmailService,
+    private configService: ConfigService,
 
     // @InjectRepository(PasswordResetOtp),
     // private passwordResetOtpRepo: Repository<PasswordResetOtp>,
@@ -39,13 +44,23 @@ export class AuthService {
     return Math.floor(100000 + Math.random() * 900000).toString();
   }
 
+  private validatePassword(password: string): void {
+    if (!PASSWORD_POLICY.test(password)) {
+      throw new BadRequestException(
+        'Password must be at least 8 characters long and contain uppercase and lowercase letters, a number, and a special character',
+      );
+    }
+  }
+
   /**
    * Register a new user
    */
   async register(registerDto: RegisterDto) {
-    const { email, password, fullName, role, phoneNumber } = registerDto;
+    const { email, password, fullName, role, phoneNumber, sellerType } = registerDto;
 
-    if (role === UserRole.ADMIN) {
+    this.validatePassword(password);
+
+    if (role === UserRole.ADMIN || role === UserRole.SUPER_ADMIN) {
       throw new BadRequestException(
         'Admin accounts must be created from the admin endpoint',
       );
@@ -54,7 +69,15 @@ export class AuthService {
     // Check if user already exists
     const existingUser = await this.userRepo.findOne({ where: { email } });
     if (existingUser) {
-      throw new BadRequestException('Email already registered');
+      if (!existingUser.emailVerified) {
+        throw new BadRequestException(
+          'An account already exists with this email, but your email has not been verified yet',
+        );
+      }
+
+      throw new BadRequestException(
+        'An account already exists with this email. Please log in instead',
+      );
     }
 
     // Hash password
@@ -62,7 +85,9 @@ export class AuthService {
 
     // Generate OTP
     const verificationOtp = this.generateOtp();
-    const verificationOtpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const verificationOtpExpires = new Date(
+      Date.now() + EMAIL_VERIFICATION_OTP_EXPIRY_MS,
+    );
 
     // Create new user
     const user = this.userRepo.create({
@@ -70,6 +95,7 @@ export class AuthService {
       password: hashedPassword,
       fullName,
       role,
+      sellerType: role === UserRole.SELLER ? sellerType : null,
       phoneNumber,
       isActive: true,
       emailVerified: false,
@@ -89,7 +115,7 @@ export class AuthService {
     return {
       message: 'Registration successful. Please check your email for the OTP.',
       email: user.email,
-      otpExpiresIn: '10 minutes',
+      otpExpiresIn: EMAIL_VERIFICATION_OTP_EXPIRY_LABEL,
     };
   }
 
@@ -106,13 +132,13 @@ export class AuthService {
       .where('user.email = :email', { email })
       .getOne();
     if (!user) {
-      throw new NotFoundException('User not found');
+      throw new UnauthorizedException('Invalid email or password');
     }
 
     // Verify password
     const isPasswordValid = await bcrypt.compare(password, user.password || '');
     if (!isPasswordValid) {
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException('Invalid email or password');
     }
 
     // Verify role matches
@@ -127,10 +153,12 @@ export class AuthService {
 
     // Check if email is verified
     if (!user.emailVerified) {
-      throw new UnauthorizedException('Please verify your email first');
+      throw new UnauthorizedException(
+        'An account already exists with this email, but your email has not been verified yet',
+      );
     }
 
-    return this.generateToken(user);
+    return this.issueTokenPair(user);
   }
 
   /**
@@ -149,15 +177,19 @@ export class AuthService {
       throw new BadRequestException('No OTP found for this email');
     }
 
-    if (user.verificationOtp !== otp) {
-      throw new BadRequestException('Invalid OTP');
-    }
-
     if (
       user.verificationOtpExpires &&
       user.verificationOtpExpires < new Date()
     ) {
-      throw new BadRequestException('OTP has expired');
+      throw new BadRequestException(
+        'The email verification OTP has expired. Please request a new OTP.',
+      );
+    }
+
+    if (user.verificationOtp !== otp) {
+      throw new BadRequestException(
+        'The email verification OTP is incorrect. Please check the code and try again.',
+      );
     }
 
     user.emailVerified = true;
@@ -206,7 +238,9 @@ export class AuthService {
 
     // Generate new OTP
     const verificationOtp = this.generateOtp();
-    const verificationOtpExpires = new Date(Date.now() + 10 * 60 * 1000);
+    const verificationOtpExpires = new Date(
+      Date.now() + EMAIL_VERIFICATION_OTP_EXPIRY_MS,
+    );
 
     user.verificationOtp = verificationOtp;
     user.verificationOtpExpires = verificationOtpExpires;
@@ -222,7 +256,7 @@ export class AuthService {
 
     return {
       message: 'Verification OTP sent to your email',
-      otpExpiresIn: '10 minutes',
+      otpExpiresIn: EMAIL_VERIFICATION_OTP_EXPIRY_LABEL,
     };
   }
 
@@ -263,6 +297,8 @@ export class AuthService {
     otp: string,
     newPassword: string,
   ): Promise<{ message: string }> {
+    this.validatePassword(newPassword);
+
     const user = await this.userRepo.findOne({ where: { email } });
 
     if (!user) {
@@ -329,7 +365,65 @@ export class AuthService {
       await this.userRepo.save(user);
     }
 
-    return this.generateToken(user);
+    return this.issueTokenPair(user);
+  }
+
+  /**
+   * Refresh access token using a valid refresh token
+   */
+  async refreshToken(refreshToken: string) {
+    if (!refreshToken) {
+      throw new BadRequestException('Refresh token is required');
+    }
+
+    let payload: { sub: string; email: string; role: UserRole };
+
+    try {
+      payload = await this.jwtService.verifyAsync(refreshToken, {
+        secret: this.getRefreshTokenSecret(),
+      });
+    } catch {
+      throw new UnauthorizedException('Invalid refresh token');
+    }
+
+    const user = await this.userRepo
+      .createQueryBuilder('user')
+      .addSelect('user.refreshTokenHash')
+      .where('user.id = :id', { id: payload.sub })
+      .getOne();
+
+    if (!user || !user.refreshTokenHash) {
+      throw new UnauthorizedException('Refresh token not recognized');
+    }
+
+    const tokenMatches = await bcrypt.compare(
+      refreshToken,
+      user.refreshTokenHash,
+    );
+
+    if (!tokenMatches) {
+      throw new UnauthorizedException('Refresh token not recognized');
+    }
+
+    return this.issueTokenPair(user);
+  }
+
+  /**
+   * Logout by clearing the stored refresh token hash
+   */
+  async logout(userId: string) {
+    const result = await this.userRepo
+      .createQueryBuilder()
+      .update(User)
+      .set({ refreshTokenHash: () => 'NULL' } as any)
+      .where('id = :id', { id: userId })
+      .execute();
+
+    if (!result.affected) {
+      throw new NotFoundException('User not found');
+    }
+
+    return { message: 'Logged out successfully' };
   }
 
   /**
@@ -381,17 +475,31 @@ export class AuthService {
   }
 
   /**
-   * Generate JWT token and return user data
+   * Generate access and refresh JWT tokens and return user data
    */
-  private generateToken(user: User) {
+  private async issueTokenPair(user: User) {
     const payload = {
       sub: user.id,
       email: user.email,
       role: user.role,
     };
 
+    const accessToken = this.jwtService.sign(payload, {
+      secret: this.getAccessTokenSecret(),
+      expiresIn: this.getAccessTokenExpiry() as any,
+    });
+
+    const refreshToken = this.jwtService.sign(payload, {
+      secret: this.getRefreshTokenSecret(),
+      expiresIn: this.getRefreshTokenExpiry() as any,
+    });
+
+    user.refreshTokenHash = await bcrypt.hash(refreshToken, 10);
+    await this.userRepo.save(user);
+
     return {
-      accessToken: this.jwtService.sign(payload),
+      accessToken,
+      refreshToken,
       user: {
         id: user.id,
         email: user.email,
@@ -400,7 +508,32 @@ export class AuthService {
         phoneNumber: user.phoneNumber || null,
         companyName: user.companyName || null,
         emailVerified: user.emailVerified,
+        isVerified: user.isVerified ?? VerificationStatus.UNVERIFIED,
       },
     };
+  }
+
+  private getAccessTokenSecret(): string | undefined {
+    return this.configService.get<string>('JWT_SECRET');
+  }
+
+  private getRefreshTokenSecret(): string {
+    return (
+      this.configService.get<string>('JWT_REFRESH_SECRET') ??
+      this.configService.get<string>('JWT_SECRET') ??
+      'doju-refresh-secret'
+    );
+  }
+
+  private getAccessTokenExpiry(): string {
+    return (
+      this.configService.get<string>('JWT_ACCESS_TOKEN_EXPIRES_IN') ?? '1d'
+    );
+  }
+
+  private getRefreshTokenExpiry(): string {
+    return (
+      this.configService.get<string>('JWT_REFRESH_TOKEN_EXPIRES_IN') ?? '7d'
+    );
   }
 }

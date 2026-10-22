@@ -7,11 +7,13 @@ import { Product } from 'src/products/entities/product-entity';
 import { PaymentsService } from './payment.service';
 import { PaymentsController } from './payments.controller';
 import { PaymentScheduler } from './payment.schedular';
+import { EmailModule } from 'src/email/email.module';
 
 @Module({
   imports: [
     TypeOrmModule.forFeature([Payment, Order, Product]),
     ConfigModule,
+    EmailModule,
   ],
   controllers: [PaymentsController],
   providers: [PaymentsService, PaymentScheduler],

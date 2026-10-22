@@ -30,4 +30,12 @@ export class WaitlistService {
       joinedAt: entry.createdAt,
     };
   }
+
+  async getAllWaitlist() {
+    return this.waitlistRepo.find({
+      order: {
+        createdAt: 'DESC',
+      },
+    });
+  }
 }

@@ -7,8 +7,22 @@ import {
   IsUUID,
   IsArray,
   ArrayNotEmpty,
+  ValidateNested,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
+
+export class DeliveryAddressDto {
+  @IsNotEmpty()
+  @IsString()
+  address: string;
+
+  @IsNumber()
+  latitude: number;
+
+  @IsNumber()
+  longitude: number;
+}
 
 export class CreateOrderDto {
   @ApiProperty({
@@ -29,12 +43,15 @@ export class CreateOrderDto {
   quantity: number;
 
   @ApiPropertyOptional({
-    example: '123 Main Street, New York, NY 10001',
-    description: 'Full delivery address for the order',
+    example: { address: '123 Main Street, Lagos, Nigeria', latitude: 6.578997, longitude: 3.349467 },
+    description: 'Buyer delivery address and coordinates. When omitted, Chowdeck fee calculation is skipped.',
+    type: DeliveryAddressDto,
+    required: false,
   })
   @IsOptional()
-  @IsString()
-  deliveryAddress?: string;
+  @ValidateNested()
+  @Type(() => DeliveryAddressDto)
+  deliveryAddress?: DeliveryAddressDto;
 
   @ApiPropertyOptional({
     example: 'Ikorodu',
@@ -95,12 +112,15 @@ export class CreateBulkOrdersDto {
   quantities: number[];
 
   @ApiPropertyOptional({
-    example: '123 Main Street, New York, NY 10001',
-    description: 'Delivery address applied to all orders in this request',
+    example: { address: '123 Main Street, Lagos, Nigeria', latitude: 6.578997, longitude: 3.349467 },
+    description: 'Buyer delivery address and coordinates applied to all orders. When omitted, Chowdeck fee calculation is skipped.',
+    type: DeliveryAddressDto,
+    required: false,
   })
   @IsOptional()
-  @IsString()
-  deliveryAddress?: string;
+  @ValidateNested()
+  @Type(() => DeliveryAddressDto)
+  deliveryAddress?: DeliveryAddressDto;
 
   @ApiPropertyOptional({
     example: 'Ikorodu',

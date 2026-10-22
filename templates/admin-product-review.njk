@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>New Product Awaiting Review</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background: #f5f5f5;
+        font-family: Arial, Helvetica, sans-serif;
+      }
+
+      .container {
+        width: 100%;
+        max-width: 640px;
+        margin: 40px auto;
+        background: #ffffff;
+        border-radius: 8px;
+        overflow: hidden;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.08);
+      }
+
+      .header {
+        background: #a9f334;
+        padding: 40px 20px;
+        text-align: center;
+        color: #ffffff;
+      }
+
+      .header h1 {
+        margin: 0;
+        font-size: 24px;
+        line-height: 1.2;
+      }
+
+      .header p {
+        margin: 12px 0 0;
+        color: #d1d5db;
+        font-size: 15px;
+      }
+
+      .content {
+        padding: 36px 30px;
+        color: #111827;
+        font-size: 16px;
+        line-height: 24px;
+      }
+
+      .notice {
+        background: #f7f7f7;
+        border-left: 4px solid #a9f334;
+        padding: 16px;
+        border-radius: 6px;
+        margin: 24px 0;
+        color: #444;
+      }
+
+      .details {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 20px 0 28px;
+      }
+
+      .details td {
+        padding: 10px 0;
+        vertical-align: top;
+        border-bottom: 1px solid #e5e7eb;
+        font-size: 14px;
+      }
+
+      .details td:first-child {
+        color: #6b7280;
+        width: 40%;
+        padding-right: 16px;
+      }
+
+      .button {
+        display: inline-block;
+        background: #111827;
+        color: #ffffff !important;
+        text-decoration: none;
+        padding: 14px 22px;
+        border-radius: 6px;
+        font-weight: bold;
+        margin-top: 10px;
+      }
+
+      .footer {
+        background: #f9fafb;
+        text-align: center;
+        padding: 20px;
+        font-size: 13px;
+        color: #6b7280;
+      }
+    </style>
+  </head>
+
+  <body>
+    <div class="container">
+      <div class="header">
+        <h1>New Product Awaiting Review</h1>
+        <p>A seller has just submitted a product for approval.</p>
+      </div>
+
+      <div class="content">
+        <p>Hi {{ adminName }},</p>
+
+        <p>
+          A seller has added a new product that needs your review on DOJU.
+          You can inspect the product details below and decide whether to approve or reject it from the admin dashboard.
+        </p>
+
+        <div class="notice">
+          <strong>Review required</strong>
+          <p style="margin: 8px 0 0;">
+            Please check the product on the admin dashboard and take the appropriate action when you’re ready.
+          </p>
+        </div>
+
+        <table class="details">
+          <tr>
+            <td>Product name</td>
+            <td>{{ productName }}</td>
+          </tr>
+          <tr>
+            <td>Price</td>
+            <td>{{ productPrice }}</td>
+          </tr>
+          <tr>
+            <td>Description</td>
+            <td>{{ productDescription }}</td>
+          </tr>
+          <tr>
+            <td>Category</td>
+            <td>{{ productCategory }}</td>
+          </tr>
+          <tr>
+            <td>Stock</td>
+            <td>{{ productStock }}</td>
+          </tr>
+          <tr>
+            <td>Size</td>
+            <td>{{ productSize }}</td>
+          </tr>
+          <tr>
+            <td>Seller name</td>
+            <td>{{ sellerName }}</td>
+          </tr>
+          <tr>
+            <td>Seller email</td>
+            <td>{{ sellerEmail }}</td>
+          </tr>
+          <tr>
+            <td>Seller company</td>
+            <td>{{ sellerCompanyName }}</td>
+          </tr>
+          <tr>
+            <td>Submitted at</td>
+            <td>{{ productCreatedAt }}</td>
+          </tr>
+        </table>
+
+        <p>
+          Best regards,<br />
+          The DOJU Team
+        </p>
+      </div>
+
+      <div class="footer">
+        You are receiving this email because you have admin access on DOJU.
+        <br /><br />
+        (c) 2026 DOJU
+      </div>
+    </div>
+  </body>
+</html>

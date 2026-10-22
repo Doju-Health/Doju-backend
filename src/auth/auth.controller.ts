@@ -12,6 +12,7 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResendVerificationEmailDto } from './dto/verify-email.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 import { JwtAuthGuard } from './guards/jwt-auth-guard';
 import {
   ApiTags,
@@ -40,7 +41,7 @@ export class AuthController {
         value: {
           fullName: 'John Doe',
           email: 'john@example.com',
-          password: 'SecurePass123',
+          password: 'SecurePass123!',
           role: 'buyer',
           phoneNumber: '+1234567890',
         },
@@ -50,8 +51,9 @@ export class AuthController {
         value: {
           fullName: 'Jane Smith',
           email: 'jane@example.com',
-          password: 'SecurePass123',
+          password: 'SecurePass123!',
           role: 'seller',
+          sellerType: 'vendor, manufacturer, supplier',
           phoneNumber: '+0987654321',
         },
       },
@@ -64,11 +66,14 @@ export class AuthController {
         message:
           'Registration successful. Please check your email for the OTP.',
         email: 'john@example.com',
-        otpExpiresIn: '10 minutes',
+        otpExpiresIn: '5 minutes',
       },
     },
   })
-  @ApiBadRequestResponse({ description: 'Email already registered' })
+  @ApiBadRequestResponse({
+    description:
+      'An account already exists with this email and requires verification or login',
+  })
   async register(@Body() registerDto: RegisterDto) {
     return this.authService.register(registerDto);
   }
@@ -99,6 +104,7 @@ export class AuthController {
     schema: {
       example: {
         accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        refreshToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
         user: {
           id: '123e4567-e89b-12d3-a456-426614174000',
           email: 'john@example.com',
@@ -116,6 +122,44 @@ export class AuthController {
   })
   async login(@Body() loginDto: LoginDto) {
     return this.authService.login(loginDto);
+  }
+
+  @Post('refresh')
+  @ApiOperation({ summary: 'Refresh access token using refresh token' })
+  @ApiBody({
+    type: RefreshTokenDto,
+    examples: {
+      example1: {
+        summary: 'Refresh token request',
+        value: {
+          refreshToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        },
+      },
+    },
+  })
+  @ApiOkResponse({
+    description: 'Token refreshed successfully',
+    schema: {
+      example: {
+        accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        refreshToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        user: {
+          id: '123e4567-e89b-12d3-a456-426614174000',
+          email: 'john@example.com',
+          role: 'buyer',
+          fullName: 'John Doe',
+          phoneNumber: '+1234567890',
+          companyName: null,
+          emailVerified: true,
+          isVerified: 'unverified',
+        },
+      },
+    },
+  })
+  @ApiBadRequestResponse({ description: 'Refresh token is required' })
+  @ApiUnauthorizedResponse({ description: 'Invalid or expired refresh token' })
+  async refresh(@Body() dto: RefreshTokenDto) {
+    return this.authService.refreshToken(dto.refreshToken);
   }
 
   @Post('verify-email')
@@ -147,7 +191,9 @@ export class AuthController {
       },
     },
   })
-  @ApiBadRequestResponse({ description: 'Invalid or expired OTP' })
+  @ApiBadRequestResponse({
+    description: 'The OTP is incorrect or has expired',
+  })
   async verifyEmail(@Body() body: { email: string; otp: string }) {
     if (!body.email || !body.otp) {
       throw new BadRequestException('Email and OTP are required');
@@ -173,7 +219,7 @@ export class AuthController {
     schema: {
       example: {
         message: 'Verification OTP sent to your email',
-        otpExpiresIn: '10 minutes',
+        otpExpiresIn: '5 minutes',
       },
     },
   })
@@ -198,6 +244,7 @@ export class AuthController {
       example: {
         message: 'Google login successful',
         accessToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
+        refreshToken: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
         user: {
           id: '123e4567-e89b-12d3-a456-426614174000',
           email: 'user@gmail.com',
@@ -213,6 +260,7 @@ export class AuthController {
     return {
       message: 'Google login successful',
       accessToken: result.accessToken,
+      refreshToken: result.refreshToken,
       user: result.user,
     };
   }
@@ -244,6 +292,23 @@ export class AuthController {
   async getProfile(@Req() req: any) {
     const user = await this.authService.getUserProfile(req.user.id);
     return { user };
+  }
+
+  @Post('logout')
+  @UseGuards(JwtAuthGuard)
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Logout current user and invalidate refresh token' })
+  @ApiOkResponse({
+    description: 'Logged out successfully',
+    schema: {
+      example: {
+        message: 'Logged out successfully',
+      },
+    },
+  })
+  @ApiUnauthorizedResponse({ description: 'Missing or invalid JWT token' })
+  async logout(@Req() req: any) {
+    return this.authService.logout(req.user.id);
   }
 
   @Post('forgot-password')
@@ -281,13 +346,19 @@ export class AuthController {
       properties: {
         email: { type: 'string', format: 'email' },
         otp: { type: 'string', minLength: 6, maxLength: 6 },
-        newPassword: { type: 'string', minLength: 8 },
+        newPassword: {
+          type: 'string',
+          minLength: 8,
+          pattern: '^(?=.*[a-z])(?=.*[A-Z])(?=.*\\d)(?=.*[^A-Za-z\\d]).+$',
+          description:
+            'At least 8 characters, including uppercase and lowercase letters, a number, and a special character',
+        },
       },
       required: ['email', 'otp', 'newPassword'],
       example: {
         email: 'john@example.com',
         otp: '123456',
-        newPassword: 'NewSecurePass123',
+        newPassword: 'NewSecurePass123!',
       },
     },
   })

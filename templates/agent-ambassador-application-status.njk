@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Your DOJU application update</title>
+    <style>
+      body { margin: 0; padding: 0; background: #f5f5f5; font-family: Arial, Helvetica, sans-serif; }
+      .container { width: 100%; max-width: 600px; margin: 40px auto; background: #fff; border-radius: 8px; overflow: hidden; }
+      .header { background: #a9f334; padding: 32px 20px; text-align: center; color: #fff; }
+      .content { padding: 32px 30px; color: #333; font-size: 16px; line-height: 24px; }
+      .highlight { background: #f7f7f7; border-left: 4px solid #a9f334; padding: 16px; border-radius: 6px; margin: 24px 0; overflow-wrap: anywhere; }
+      .footer { background: #f7f7f7; text-align: center; padding: 20px; font-size: 14px; color: #666; }
+      .code { font-size: 20px; font-weight: bold; }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="header"><h1>Application {{ status | capitalize }}</h1></div>
+      <div class="content">
+        <p>Hi {{ fullName }},</p>
+        {% if status == 'approved' %}
+        <p>Congratulations! Your DOJU {{ applicationType }} application has been approved.</p>
+        {% if temporaryPassword %}
+        <div class="highlight">
+          <p>Your temporary dashboard login password: <span class="code">{{ temporaryPassword }}</span></p>
+        </div>
+        <p>Use your application email and this password to log in to your dashboard. Please change your password once you are settled in.</p>
+        {% endif %}
+        <div class="highlight">
+          <p>Your referral code: <span class="code">{{ referralCode }}</span></p>
+          <p>Your referral link: <a href="{{ referralLink }}">{{ referralLink }}</a></p>
+        </div>
+        <p>Share your referral link to invite people to DOJU.</p>
+        {% else %}
+        <p>Thank you for applying to become a DOJU {{ applicationType }}. After review, we’re unable to approve your application at this time.</p>
+        {% if rejectionReason %}<div class="highlight"><strong>Reason</strong><p>{{ rejectionReason }}</p></div>{% endif %}
+        {% endif %}
+        <p>Best regards,<br />The DOJU Team</p>
+      </div>
+      <div class="footer">You are receiving this email because you applied to become a DOJU {{ applicationType }}.<br /><br />(c) 2026 DOJU</div>
+    </div>
+  </body>
+</html>

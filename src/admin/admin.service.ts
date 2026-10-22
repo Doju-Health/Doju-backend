@@ -1,7 +1,10 @@
+import 'dotenv/config';
 import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -17,9 +20,40 @@ import { InviteAdminDto } from './dto/invite-admin.dto';
 import { CompleteAdminRegistrationDto } from './dto/complete-admin-registration.dto';
 import * as bcrypt from 'bcrypt';
 import { EmailService } from 'src/email/email.service';
+import { VerificationStatus } from 'src/users/enums/user.enum';
+import { Agent } from 'src/agents/entities/agent.entity';
+import { Ambassador } from 'src/ambassadors/entities/ambassador.entity';
+import { randomBytes } from 'crypto';
+
+const ADMIN_USER_SELECT = [
+  'user.id',
+  'user.fullName',
+  'user.email',
+  'user.phoneNumber',
+  'user.role',
+  'user.isSuperAdmin',
+  'user.companyName',
+  'user.address',
+  'user.businessCity',
+  'user.businessState',
+  'user.businessAddress',
+  'user.profileImageUrl',
+  'user.licenseNumber',
+  'user.kycApproved',
+  'user.kycRejectionReason',
+  'user.emailVerified',
+  'user.isVerified',
+  'user.ninUrl',
+  'user.cacUrl',
+  'user.isActive',
+  'user.createdAt',
+  'user.updatedAt',
+];
 
 @Injectable()
 export class AdminService {
+  private readonly logger = new Logger(AdminService.name);
+
   constructor(
     @InjectRepository(User)
     private userRepo: Repository<User>,
@@ -31,21 +65,20 @@ export class AdminService {
     private categoryRepo: Repository<ProductCategory>,
     @InjectRepository(Payment)
     private paymentRepo: Repository<Payment>,
+    @InjectRepository(Agent)
+    private agentRepo: Repository<Agent>,
+    @InjectRepository(Ambassador)
+    private ambassadorRepo: Repository<Ambassador>,
     private emailService: EmailService,
   ) {}
 
   async createAdminAccount(dto: CreateAdminAccountDto) {
-    const completedAdminCount = await this.userRepo
-      .createQueryBuilder('user')
-      .where('user.role = :role', { role: UserRole.ADMIN })
-      .andWhere('user.password IS NOT NULL')
-      .andWhere('user.emailVerified = true')
-      .getCount();
+    const existingSuperAdmin = await this.userRepo.findOne({
+      where: { isSuperAdmin: true },
+    });
 
-    if (completedAdminCount >= 2) {
-      throw new BadRequestException(
-        'Only two direct admin accounts can be created',
-      );
+    if (existingSuperAdmin) {
+      throw new BadRequestException('A super admin account already exists');
     }
 
     const existingUser = await this.userRepo.findOne({
@@ -63,22 +96,32 @@ export class AdminService {
       email: dto.email,
       password: hashedPassword,
       phoneNumber: dto.phoneNumber,
-      role: UserRole.ADMIN,
+      role: UserRole.SUPER_ADMIN,
+      isSuperAdmin: true,
       emailVerified: true,
       isActive: true,
-      isVerified: true,
+      isVerified: VerificationStatus.VERIFIED,
     });
 
     const savedAdmin = await this.userRepo.save(admin);
     const { password, ...safeAdmin } = savedAdmin;
 
     return {
-      message: 'Admin account created successfully',
+      message: 'Super admin account created successfully',
       user: safeAdmin,
     };
   }
 
-  async inviteAdmin(dto: InviteAdminDto) {
+  async inviteAdmin(
+    dto: InviteAdminDto,
+    requestingUser?: { id: string; isSuperAdmin?: boolean },
+  ) {
+    if (!requestingUser?.isSuperAdmin) {
+      throw new ForbiddenException(
+        'Only the super admin can invite admin accounts',
+      );
+    }
+
     const existingUser = await this.userRepo
       .createQueryBuilder('user')
       .addSelect('user.password')
@@ -101,9 +144,10 @@ export class AdminService {
         fullName: dto.fullName,
         email: dto.email,
         role: UserRole.ADMIN,
+        isSuperAdmin: false,
         emailVerified: false,
         isActive: true,
-        isVerified: true,
+        isVerified: VerificationStatus.VERIFIED,
       });
 
     if (existingUser) {
@@ -132,6 +176,43 @@ export class AdminService {
     };
   }
 
+  async removeAdmin(
+    id: string,
+    hard: boolean,
+    requestingUser: { id: string; isSuperAdmin?: boolean },
+  ) {
+    if (!requestingUser.isSuperAdmin) {
+      throw new ForbiddenException(
+        'Only the super admin can remove admin accounts',
+      );
+    }
+
+    const admin = await this.userRepo.findOne({ where: { id } });
+
+    if (!admin) {
+      throw new NotFoundException('Admin not found');
+    }
+
+    if (admin.role !== UserRole.ADMIN) {
+      throw new BadRequestException('User is not an admin');
+    }
+
+    if (admin.isSuperAdmin) {
+      throw new BadRequestException(
+        'The super admin account cannot be removed',
+      );
+    }
+
+    if (!hard) {
+      admin.isActive = false;
+      await this.userRepo.save(admin);
+      return { message: 'Admin deactivated successfully' };
+    }
+
+    await this.userRepo.delete(admin.id);
+    return { message: 'Admin deleted successfully' };
+  }
+
   async completeAdminRegistration(dto: CompleteAdminRegistrationDto) {
     const admin = await this.userRepo
       .createQueryBuilder('user')
@@ -150,7 +231,7 @@ export class AdminService {
     admin.password = await bcrypt.hash(dto.password, 10);
     admin.emailVerified = true;
     admin.isActive = true;
-    admin.isVerified = true;
+    admin.isVerified = VerificationStatus.VERIFIED;
 
     await this.userRepo.save(admin);
 
@@ -171,9 +252,7 @@ export class AdminService {
   }
 
   private buildAdminCompleteRegistrationUrl(email: string): string {
-    const baseUrl =
-      process.env.ADMIN_COMPLETE_REGISTRATION_URL ||
-      'https://www.oju/admin/complete';
+    const baseUrl = process.env.ADMIN_COMPLETE_REGISTRATION_URL ?? '';
 
     return `${baseUrl.replace(/\/$/, '')}/${encodeURIComponent(email)}`;
   }
@@ -184,6 +263,9 @@ export class AdminService {
     role,
     isActive,
     search,
+    companyName,
+    createdAt,
+    isVerified,
     sortBy = 'createdAt',
   }: {
     page?: number;
@@ -191,30 +273,17 @@ export class AdminService {
     role?: UserRole;
     isActive?: boolean;
     search?: string;
+    companyName?: string;
+    createdAt?: string;
+    isVerified?: VerificationStatus | boolean | string;
     sortBy?: 'createdAt' | 'fullName' | 'email';
   }) {
     const safePage = Math.max(page, 1);
     const safeLimit = Math.min(Math.max(limit, 1), 100);
 
-    const qb = this.userRepo.createQueryBuilder('user').select([
-      'user.id',
-      'user.fullName',
-      'user.email',
-      'user.phoneNumber',
-      'user.role',
-      'user.companyName',
-      'user.address',
-      'user.profileImageUrl',
-      'user.licenseNumber',
-      'user.emailVerified',
-      'user.isVerified',
-      'user.ninUrl',
-      'user.cacUrl',
-      'user.isVerified',
-      'user.isActive',
-      'user.createdAt',
-      'user.updatedAt',
-    ]);
+    const qb = this.userRepo
+      .createQueryBuilder('user')
+      .select(ADMIN_USER_SELECT);
 
     if (role) {
       qb.andWhere('user.role = :role', { role });
@@ -229,6 +298,12 @@ export class AdminService {
         search: `%${search}%`,
       });
     }
+
+    this.applyUserFilters(qb, {
+      companyName,
+      createdAt,
+      isVerified,
+    });
 
     switch (sortBy) {
       case 'fullName':
@@ -258,29 +333,85 @@ export class AdminService {
     };
   }
 
-  async getUserById(id: string) {
-    const user = await this.userRepo.findOne({
-      where: { id },
-      select: [
-        'id',
-        'fullName',
-        'email',
-        'phoneNumber',
-        'role',
-        'companyName',
-        'address',
-        'profileImageUrl',
-        'licenseNumber',
-        'cacUrl',
-        'ninUrl',
-        // 'flutterwaveRecipientCode',
-        'emailVerified',
-        'isVerified',
-        'isActive',
-        'createdAt',
-        'updatedAt',
-      ],
-    });
+  async exportUsersCsv(): Promise<string> {
+    const users = await this.userRepo
+      .createQueryBuilder('user')
+      .select([
+        ...ADMIN_USER_SELECT,
+        'user.bankCode',
+        'user.accountNumber',
+        'user.accountName',
+      ])
+      .orderBy('user.createdAt', 'DESC')
+      .getMany();
+
+    const columns: Array<{ header: string; key: keyof User }> = [
+      { header: 'id', key: 'id' },
+      { header: 'fullName', key: 'fullName' },
+      { header: 'email', key: 'email' },
+      { header: 'phoneNumber', key: 'phoneNumber' },
+      { header: 'role', key: 'role' },
+      { header: 'isSuperAdmin', key: 'isSuperAdmin' },
+      { header: 'emailVerified', key: 'emailVerified' },
+      { header: 'isActive', key: 'isActive' },
+      { header: 'isVerified', key: 'isVerified' },
+      { header: 'kycApproved', key: 'kycApproved' },
+      { header: 'kycRejectionReason', key: 'kycRejectionReason' },
+      { header: 'companyName', key: 'companyName' },
+      { header: 'licenseNumber', key: 'licenseNumber' },
+      { header: 'ninUrl', key: 'ninUrl' },
+      { header: 'cacUrl', key: 'cacUrl' },
+      { header: 'address', key: 'address' },
+      { header: 'city', key: 'city' },
+      { header: 'state', key: 'state' },
+      { header: 'businessAddress', key: 'businessAddress' },
+      { header: 'businessCity', key: 'businessCity' },
+      { header: 'businessState', key: 'businessState' },
+      { header: 'profileImageUrl', key: 'profileImageUrl' },
+      { header: 'bankCode', key: 'bankCode' },
+      { header: 'accountNumber', key: 'accountNumber' },
+      { header: 'accountName', key: 'accountName' },
+      { header: 'createdAt', key: 'createdAt' },
+      { header: 'updatedAt', key: 'updatedAt' },
+    ];
+
+    const escapeCsv = (value: unknown): string => {
+      let text = value == null ? '' : String(value);
+
+      // Prevent spreadsheet applications from treating exported values as formulas.
+      if (/^[\s]*[=+@\-]/.test(text)) {
+        text = `'${text}`;
+      }
+
+      return `"${text.replace(/"/g, '""')}"`;
+    };
+
+    const rows = [
+      columns.map(({ header }) => escapeCsv(header)).join(','),
+      ...users.map((user) =>
+        columns.map(({ key }) => escapeCsv(user[key])).join(','),
+      ),
+    ];
+
+    return `\uFEFF${rows.join('\r\n')}`;
+  }
+
+  async getUserById(
+    id: string,
+    filters?: {
+      companyName?: string;
+      createdAt?: string;
+      isVerified?: VerificationStatus | boolean | string;
+    },
+  ) {
+    const qb = this.userRepo
+      .createQueryBuilder('user')
+      .select(ADMIN_USER_SELECT)
+      .where('user.id = :id', { id });
+
+    this.applyUserFilters(qb, filters);
+
+    const user = await qb.getOne();
 
     if (!user) {
       throw new NotFoundException('User not found');
@@ -289,11 +420,121 @@ export class AdminService {
     return user;
   }
 
-  async deleteUser(id: string, hard: boolean) {
+  private applyUserFilters(
+    qb: {
+      andWhere: (
+        condition: string,
+        parameters?: Record<string, unknown>,
+      ) => any;
+    },
+    filters?: {
+      companyName?: string;
+      createdAt?: string;
+      isVerified?: VerificationStatus | boolean | string;
+    },
+  ) {
+    if (!filters) {
+      return;
+    }
+
+    const { companyName, createdAt, isVerified } = filters;
+
+    if (companyName) {
+      qb.andWhere('user.companyName ILIKE :companyName', {
+        companyName: `%${companyName}%`,
+      });
+    }
+
+    if (createdAt) {
+      const createdAtDate = new Date(createdAt);
+
+      if (Number.isNaN(createdAtDate.getTime())) {
+        throw new BadRequestException('Invalid createdAt value');
+      }
+
+      qb.andWhere('DATE(user.createdAt) = DATE(:createdAt)', {
+        createdAt: createdAtDate.toISOString(),
+      });
+    }
+
+    if (isVerified !== undefined) {
+      const verificationStatus = this.normalizeVerificationStatus(isVerified);
+
+      if (!verificationStatus) {
+        throw new BadRequestException('Invalid isVerified value');
+      }
+
+      qb.andWhere('user.isVerified = :isVerified', {
+        isVerified: verificationStatus,
+      });
+    }
+  }
+
+  private normalizeVerificationStatus(
+    value: VerificationStatus | boolean | string,
+  ): VerificationStatus | undefined {
+    if (value === true) {
+      return VerificationStatus.VERIFIED;
+    }
+
+    if (value === false) {
+      return VerificationStatus.UNVERIFIED;
+    }
+
+    if (
+      value === VerificationStatus.VERIFIED ||
+      value === VerificationStatus.PENDING ||
+      value === VerificationStatus.UNVERIFIED ||
+      value === VerificationStatus.REJECTED
+    ) {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      const normalized = value.toLowerCase();
+
+      if (normalized === 'true') {
+        return VerificationStatus.VERIFIED;
+      }
+
+      if (normalized === 'false') {
+        return VerificationStatus.UNVERIFIED;
+      }
+
+      if (
+        normalized === VerificationStatus.VERIFIED ||
+        normalized === VerificationStatus.PENDING ||
+        normalized === VerificationStatus.UNVERIFIED ||
+        normalized === VerificationStatus.REJECTED
+      ) {
+        return normalized as VerificationStatus;
+      }
+    }
+
+    return undefined;
+  }
+
+  async deleteUser(
+    id: string,
+    hard: boolean,
+    requestingUser?: { id: string; isSuperAdmin?: boolean },
+  ) {
     const user = await this.userRepo.findOne({ where: { id } });
 
     if (!user) {
       throw new NotFoundException('User not found');
+    }
+
+    if (user.isSuperAdmin) {
+      throw new BadRequestException(
+        'The super admin account cannot be removed',
+      );
+    }
+
+    if (user.role === UserRole.ADMIN && !requestingUser?.isSuperAdmin) {
+      throw new ForbiddenException(
+        'Only the super admin can manage admin accounts',
+      );
     }
 
     if (!hard) {
@@ -329,11 +570,26 @@ export class AdminService {
     }
   }
 
-  async deactivateUser(id: string) {
+  async deactivateUser(
+    id: string,
+    requestingUser?: { id: string; isSuperAdmin?: boolean },
+  ) {
     const user = await this.userRepo.findOne({ where: { id } });
 
     if (!user) {
       throw new NotFoundException('User not found');
+    }
+
+    if (user.isSuperAdmin) {
+      throw new BadRequestException(
+        'The super admin account cannot be deactivated',
+      );
+    }
+
+    if (user.role === UserRole.ADMIN && !requestingUser?.isSuperAdmin) {
+      throw new ForbiddenException(
+        'Only the super admin can manage admin accounts',
+      );
     }
 
     if (!user.isActive) {
@@ -383,17 +639,24 @@ export class AdminService {
       throw new BadRequestException('User is not a seller');
     }
 
-    if (user.isVerified) {
+    if (user.isVerified === VerificationStatus.VERIFIED && user.kycApproved) {
       return { message: 'Seller already verified' };
     }
 
-    user.isVerified = true;
+    user.kycApproved = true;
+    user.kycRejectionReason = undefined;
+    user.isVerified = VerificationStatus.VERIFIED;
     await this.userRepo.save(user);
+
+    await this.emailService.sendSellerKycApprovedEmail(
+      user.email,
+      user.fullName,
+    );
 
     return { message: 'Seller verified successfully' };
   }
 
-  async approveSellerKyc(id: string) {
+  async rejectSeller(id: string, reason: string) {
     const user = await this.userRepo.findOne({ where: { id } });
 
     if (!user) {
@@ -404,15 +667,216 @@ export class AdminService {
       throw new BadRequestException('User is not a seller');
     }
 
-    if (user.kycApproved) {
-      return { message: 'KYC already approved' };
+    const trimmedReason = reason.trim();
+    if (!trimmedReason) {
+      throw new BadRequestException('Reason is required');
     }
 
-    user.kycApproved = true;
+    user.kycApproved = false;
+    user.kycRejectionReason = trimmedReason;
+    user.isVerified = VerificationStatus.REJECTED;
     await this.userRepo.save(user);
 
-    return { message: 'KYC approved successfully' };
+    await this.emailService.sendSellerKycRejectedEmail(
+      user.email,
+      user.fullName,
+      trimmedReason,
+    );
+
+    return { message: 'Seller rejected successfully' };
   }
+
+  async approveAgentApplication(id: number) {
+    const agent = await this.agentRepo.findOne({ where: { id } });
+    if (!agent) throw new NotFoundException('Agent application not found');
+    if (agent.status !== 'pending') {
+      throw new BadRequestException('Agent application is not pending');
+    }
+
+    const temporaryPassword = await this.createApplicantLogin(
+      agent.email,
+      agent.fullName,
+      agent.phone,
+      UserRole.AGENT,
+    );
+
+    const referralCode = `DOJU-AGT-${randomBytes(5).toString('hex').toUpperCase()}`;
+    agent.status = 'approved';
+    agent.referralCode = referralCode;
+    agent.referralLink = this.buildReferralLink(referralCode);
+    await this.agentRepo.save(agent);
+    this.notifyApplicationStatus({
+      email: agent.email,
+      fullName: agent.fullName,
+      applicationType: 'Agent',
+      status: 'approved',
+      referralCode: agent.referralCode,
+      referralLink: agent.referralLink,
+      temporaryPassword,
+    });
+    return {
+      message: 'Agent application approved successfully',
+      referralCode: agent.referralCode,
+      referralLink: agent.referralLink,
+    };
+  }
+
+  async rejectAgentApplication(id: number, reason: string) {
+    const agent = await this.agentRepo.findOne({ where: { id } });
+    if (!agent) throw new NotFoundException('Agent application not found');
+    if (agent.status !== 'pending') {
+      throw new BadRequestException('Agent application is not pending');
+    }
+    const rejectionReason = reason.trim();
+    if (!rejectionReason) {
+      throw new BadRequestException('Rejection reason is required');
+    }
+    agent.status = 'rejected';
+    await this.agentRepo.save(agent);
+    this.notifyApplicationStatus({
+      email: agent.email,
+      fullName: agent.fullName,
+      applicationType: 'Agent',
+      status: 'rejected',
+      rejectionReason,
+    });
+    return { message: 'Agent application rejected successfully' };
+  }
+
+  async approveAmbassadorApplication(id: string) {
+    const ambassador = await this.ambassadorRepo.findOne({ where: { id } });
+    if (!ambassador) {
+      throw new NotFoundException('Ambassador application not found');
+    }
+    if (ambassador.status !== 'pending') {
+      throw new BadRequestException('Ambassador application is not pending');
+    }
+
+    const temporaryPassword = await this.createApplicantLogin(
+      ambassador.email,
+      ambassador.fullName,
+      ambassador.phone,
+      UserRole.AMBASSADOR,
+    );
+
+    const referralCode = `DOJU-AMB-${randomBytes(5).toString('hex').toUpperCase()}`;
+    ambassador.status = 'approved';
+    ambassador.referralCode = referralCode;
+    ambassador.referralLink = this.buildReferralLink(referralCode);
+    await this.ambassadorRepo.save(ambassador);
+    this.notifyApplicationStatus({
+      email: ambassador.email,
+      fullName: ambassador.fullName,
+      applicationType: 'Student ambassador',
+      status: 'approved',
+      referralCode: ambassador.referralCode,
+      referralLink: ambassador.referralLink,
+      temporaryPassword,
+    });
+    return {
+      message: 'Ambassador application approved successfully',
+      referralCode: ambassador.referralCode,
+      referralLink: ambassador.referralLink,
+    };
+  }
+
+  async rejectAmbassadorApplication(id: string, reason: string) {
+    const ambassador = await this.ambassadorRepo.findOne({ where: { id } });
+    if (!ambassador) {
+      throw new NotFoundException('Ambassador application not found');
+    }
+    if (ambassador.status !== 'pending') {
+      throw new BadRequestException('Ambassador application is not pending');
+    }
+    const rejectionReason = reason.trim();
+    if (!rejectionReason) {
+      throw new BadRequestException('Rejection reason is required');
+    }
+    ambassador.status = 'rejected';
+    await this.ambassadorRepo.save(ambassador);
+    this.notifyApplicationStatus({
+      email: ambassador.email,
+      fullName: ambassador.fullName,
+      applicationType: 'Student ambassador',
+      status: 'rejected',
+      rejectionReason,
+    });
+    return { message: 'Ambassador application rejected successfully' };
+  }
+
+  private buildReferralLink(referralCode: string): string {
+    const baseUrl = (process.env.FRONTEND_URL || 'https://dojuhealth.com')
+      .replace(/\/$/, '');
+    return `${baseUrl}/?referralCode=${encodeURIComponent(referralCode)}`;
+  }
+
+  private async createApplicantLogin(
+    email: string,
+    fullName: string,
+    phoneNumber: string,
+    role: UserRole.AGENT | UserRole.AMBASSADOR,
+  ): Promise<string> {
+    const existingUser = await this.userRepo.findOne({ where: { email } });
+    if (existingUser) {
+      throw new BadRequestException(
+        'An account with this email already exists. Use a different application email.',
+      );
+    }
+
+    const temporaryPassword = randomBytes(12).toString('base64url');
+    const user = this.userRepo.create({
+      email,
+      fullName,
+      phoneNumber,
+      role,
+      password: await bcrypt.hash(temporaryPassword, 10),
+      emailVerified: true,
+      isActive: true,
+    });
+    await this.userRepo.save(user);
+    return temporaryPassword;
+  }
+
+  private notifyApplicationStatus(params: {
+    email: string;
+    fullName: string;
+    applicationType: string;
+    status: 'approved' | 'rejected';
+    rejectionReason?: string;
+    referralCode?: string;
+    referralLink?: string;
+    temporaryPassword?: string;
+  }): void {
+    void this.emailService
+      .sendAgentAmbassadorApplicationStatusEmail(params)
+      .catch((error) => {
+        this.logger.error(
+          `Failed to send ${params.status} ${params.applicationType} application email`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      });
+  }
+
+  // async approveSellerKyc(id: string) {
+  //   const user = await this.userRepo.findOne({ where: { id } });
+
+  //   if (!user) {
+  //     throw new NotFoundException('User not found');
+  //   }
+
+  //   if (user.role !== UserRole.SELLER) {
+  //     throw new BadRequestException('User is not a seller');
+  //   }
+
+  //   if (user.kycApproved) {
+  //     return { message: 'KYC already approved' };
+  //   }
+
+  //   user.kycApproved = true;
+  //   await this.userRepo.save(user);
+
+  //   return { message: 'KYC approved successfully' };
+  // }
 
   async approveProduct(id: string) {
     const product = await this.productRepo.findOne({ where: { id } });
@@ -426,9 +890,63 @@ export class AdminService {
     }
 
     product.isApproved = true;
+    product.rejectionReason = null;
     await this.productRepo.save(product);
 
+    void this.emailService
+      .sendProductApprovedEmail({
+        sellerEmail: product.seller.email,
+        sellerName: product.seller.fullName,
+        productName: product.name,
+        productPrice: this.formatMoney(product.price),
+        productDescription: product.description,
+        productCategory: product.category?.name,
+      })
+      .catch((error) => {
+        this.logger.error(
+          `Failed to send approval email for product ${product.id}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      });
+
     return { message: 'Product approved successfully' };
+  }
+
+  async rejectProduct(id: string, reason: string) {
+    const trimmedReason = reason.trim();
+
+    if (!trimmedReason) {
+      throw new BadRequestException('Rejection reason is required');
+    }
+
+    const product = await this.productRepo.findOne({ where: { id } });
+
+    if (!product) {
+      throw new NotFoundException('Product not found');
+    }
+
+    product.isApproved = false;
+    product.rejectionReason = trimmedReason;
+    await this.productRepo.save(product);
+
+    void this.emailService
+      .sendProductRejectedEmail({
+        sellerEmail: product.seller.email,
+        sellerName: product.seller.fullName,
+        productName: product.name,
+        productPrice: this.formatMoney(product.price),
+        productDescription: product.description,
+        productCategory: product.category?.name,
+        rejectionReason: trimmedReason,
+      })
+      .catch((error) => {
+        this.logger.error(
+          `Failed to send rejection email for product ${product.id}`,
+          error instanceof Error ? error.stack : String(error),
+        );
+      });
+
+    return { message: 'Product rejected successfully' };
   }
 
   async getSellerProducts({
@@ -442,7 +960,7 @@ export class AdminService {
     sellerId: string;
     page?: number;
     limit?: number;
-    isVerified?: boolean;
+    isVerified?: VerificationStatus | boolean | string;
     categoryId?: string;
     isApproved?: boolean;
   }) {
@@ -474,7 +992,20 @@ export class AdminService {
     }
 
     if (isVerified !== undefined) {
-      qb.andWhere('seller.isVerified = :isVerified', { isVerified });
+      const verificationStatus =
+        isVerified === true
+          ? VerificationStatus.VERIFIED
+          : isVerified === false
+            ? VerificationStatus.UNVERIFIED
+            : isVerified === 'verified' ||
+                isVerified === 'pending' ||
+                isVerified === 'unverified'
+              ? isVerified
+              : VerificationStatus.UNVERIFIED;
+
+      qb.andWhere('seller.isVerified = :isVerified', {
+        isVerified: verificationStatus,
+      });
     }
 
     const [data, total] = await qb
@@ -557,7 +1088,11 @@ export class AdminService {
       totalUsers,
       totalBuyers,
       totalSellers,
+      totalAdmins,
+      pendingKycSellers,
+      unverifiedKycSellers,
       totalProducts,
+      unverifiedProducts,
       totalCategories,
       totalTransactions,
       successfulTransactions,
@@ -566,7 +1101,26 @@ export class AdminService {
       this.userRepo.count(),
       this.userRepo.count({ where: { role: UserRole.BUYER } }),
       this.userRepo.count({ where: { role: UserRole.SELLER } }),
+      this.userRepo.count({
+        where: [
+          { role: UserRole.ADMIN },
+          { role: UserRole.SUPER_ADMIN },
+        ],
+      }),
+      this.userRepo.count({
+        where: {
+          role: UserRole.SELLER,
+          isVerified: VerificationStatus.PENDING,
+        },
+      }),
+      this.userRepo.count({
+        where: {
+          role: UserRole.SELLER,
+          isVerified: VerificationStatus.UNVERIFIED,
+        },
+      }),
       this.productRepo.count(),
+      this.productRepo.count({ where: { isApproved: false } }),
       this.categoryRepo.count(),
       this.paymentRepo.count(),
       this.paymentRepo.count({ where: { status: PaymentStatus.PAID } }),
@@ -578,9 +1132,13 @@ export class AdminService {
         total: totalUsers,
         buyers: totalBuyers,
         sellers: totalSellers,
+        admins: totalAdmins,
+        pendingKyc: pendingKycSellers,
+        unverifiedKyc: unverifiedKycSellers,
       },
       products: {
         total: totalProducts,
+        unverified: unverifiedProducts,
       },
       categories: {
         total: totalCategories,
@@ -591,6 +1149,14 @@ export class AdminService {
         failed: failedTransactions,
       },
     };
+  }
+
+  private formatMoney(value: number): string {
+    return new Intl.NumberFormat('en-NG', {
+      style: 'currency',
+      currency: 'NGN',
+      maximumFractionDigits: 2,
+    }).format(Number(value));
   }
 
   async getRevenue(sellerId?: string): Promise<number> {

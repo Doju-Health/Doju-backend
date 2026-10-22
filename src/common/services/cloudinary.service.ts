@@ -24,6 +24,78 @@ export class CloudinaryService {
     return this.uploadSingle(file, folder);
   }
 
+  async uploadVerificationDocument(file: Express.Multer.File): Promise<{
+    publicId: string;
+    assetId: string;
+    resourceType: string;
+    format: string;
+  }> {
+    if (!file) {
+      throw new BadRequestException('No file provided');
+    }
+
+    try {
+      return await new Promise((resolve, reject) => {
+        const uploadStream = cloudinary.uploader.upload_stream(
+          {
+            folder: 'doju/verification-documents',
+            resource_type: 'auto',
+            type: 'authenticated',
+          },
+          (error, result) => {
+            if (error) {
+              reject(new BadRequestException(`Upload failed: ${error.message}`));
+              return;
+            }
+
+            if (!result?.public_id || !result.asset_id || !result.resource_type || !result.format) {
+              reject(new BadRequestException('Upload failed: incomplete Cloudinary result'));
+              return;
+            }
+
+            resolve({
+              publicId: result.public_id,
+              assetId: result.asset_id,
+              resourceType: result.resource_type,
+              format: result.format,
+            });
+          },
+        );
+
+        uploadStream.end(file.buffer);
+      });
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
+      throw new BadRequestException(
+        `Verification document upload failed: ${error instanceof Error ? error.message : String(error)}`,
+      );
+    }
+  }
+
+  getVerificationDocumentDownloadUrl(
+    publicId: string,
+    resourceType: string,
+    format: string,
+  ): string {
+    return cloudinary.utils.private_download_url(publicId, format, {
+      resource_type: resourceType as 'image' | 'raw' | 'video',
+      type: 'authenticated',
+      expires_at: Math.floor(Date.now() / 1000) + 5 * 60,
+    });
+  }
+
+  async deleteVerificationDocument(
+    publicId: string,
+    resourceType: string,
+  ): Promise<void> {
+    await cloudinary.uploader.destroy(publicId, {
+      resource_type: resourceType as 'image' | 'raw' | 'video',
+      type: 'authenticated',
+    });
+  }
+
   async uploadImages(
     files: Express.Multer.File[],
     folder: string = 'doju/products',

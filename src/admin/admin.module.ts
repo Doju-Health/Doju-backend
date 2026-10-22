@@ -9,10 +9,12 @@ import { Order } from 'src/orders/entities/order.entity';
 import { ProductCategory } from 'src/products/entities/product-category.entity';
 import { Payment } from 'src/payment/entities/payment.entity';
 import { EmailModule } from 'src/email/email.module';
+import { Agent } from 'src/agents/entities/agent.entity';
+import { Ambassador } from 'src/ambassadors/entities/ambassador.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, Product, Order, ProductCategory, Payment]),
+    TypeOrmModule.forFeature([User, Product, Order, ProductCategory, Payment, Agent, Ambassador]),
     EmailModule,
   ],
   controllers: [AdminController, AdminRegistrationController],

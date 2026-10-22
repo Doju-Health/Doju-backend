@@ -9,7 +9,7 @@ import {
 } from 'typeorm';
 import { Order } from '../../orders/entities/order.entity';
 import { User } from '../../users/entities/user.entity';
-import { PaymentStatus } from '../../orders/enums/order.enum';
+import { DeliveryProvider, PaymentStatus } from '../../orders/enums/order.enum';
 
 export enum EscrowStatus {
   HELD = 'HELD',
@@ -89,8 +89,17 @@ export class Payment {
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
   deliveryFee: number | null;
 
+  @Column('varchar', { nullable: true })
+  deliveryProvider: DeliveryProvider | null;
+
+  @Column('decimal', { precision: 10, scale: 2, nullable: true })
+  platformCharges: number | null;
+
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
   sellerAmount: number | null;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  sellerReceives?: number | null;
 
   @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
   estimatedPlatformFee: number | null;

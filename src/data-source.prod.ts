@@ -7,11 +7,13 @@ import { ProductCategory } from './products/entities/product-category.entity';
 import { Order } from './orders/entities/order.entity';
 import { Payment } from './payment/entities/payment.entity';
 import { WaitlistEntry } from './waitlist/entities/waitlist-entry.entity';
+import { Ambassador } from './ambassadors/entities/ambassador.entity';
+import { Agent } from './agents/entities/agent.entity';
 
 export const AppDataSource = new DataSource({
   type: 'postgres',
   url: process.env.DATABASE_URL,
-  entities: [User, Product, ProductCategory, Order, Payment, WaitlistEntry],
+  entities: [User, Product, ProductCategory, Order, Payment, WaitlistEntry, Ambassador, Agent],
   migrations: ['dist/migrations/*.js'],
   synchronize: false,
   schema: 'public',

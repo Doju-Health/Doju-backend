@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { OrderStatus, PaymentStatus } from '../enums/order.enum';
+import { DeliveryProvider, OrderStatus, PaymentStatus } from '../enums/order.enum';
 
 export class OrderResponseDto {
   @ApiProperty({
@@ -56,12 +56,39 @@ export class OrderResponseDto {
   })
   totalPrice: number;
 
+  @ApiPropertyOptional({ example: 27300, description: 'Payable total using Chowdeck delivery', nullable: true })
+  chowdeckTotalPrice?: number | null;
+
+  @ApiPropertyOptional({ enum: DeliveryProvider, nullable: true })
+  deliveryProvider?: DeliveryProvider | null;
+
   @ApiProperty({
     example: 3500,
     description: 'Delivery fee charged for this order',
     nullable: true,
   })
   deliveryFee?: number | null;
+
+  @ApiPropertyOptional({ example: 190000, description: 'Chowdeck delivery amount returned by its fee endpoint', nullable: true })
+  chowdeckDeliveryAmount?: number | null;
+
+  @ApiPropertyOptional({ example: 259497441, description: 'Chowdeck fee quote ID', nullable: true })
+  chowdeckFeeId?: number | null;
+
+  @ApiPropertyOptional({ example: 98765, nullable: true })
+  chowdeckDeliveryId?: number | null;
+
+  @ApiPropertyOptional({ example: 'my-delivery-ref-001', nullable: true })
+  chowdeckReference?: string | null;
+
+  @ApiPropertyOptional({ example: 'preparing', nullable: true })
+  chowdeckDeliveryStatus?: string | null;
+
+  @ApiPropertyOptional({ example: 'https://track.chowdeck.com/my-delivery-ref-001', nullable: true })
+  chowdeckTrackingUrl?: string | null;
+
+  @ApiPropertyOptional({ example: '4821', nullable: true })
+  chowdeckDeliveryPin?: string | null;
 
   @ApiProperty({
     example: null,
@@ -76,6 +103,13 @@ export class OrderResponseDto {
     nullable: true,
   })
   sellerAmount?: number | null;
+
+  @ApiPropertyOptional({
+    example: 14600,
+    description: 'Total payout to the seller, including the actual delivery fee',
+    nullable: true,
+  })
+  sellerReceives?: number | null;
 
   @ApiProperty({
     example: 300,

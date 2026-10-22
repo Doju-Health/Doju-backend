@@ -36,7 +36,8 @@ import { MarkShippedDto } from './dto/mark-shipped.dto';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth-guard';
 import { CurrentUser } from 'src/common/decorators/current-user.decorator';
 import { User } from 'src/users/entities/user.entity';
-import { PaymentStatus } from './enums/order.enum';
+import { OrderStatus, PaymentStatus } from './enums/order.enum';
+import { CreateChowdeckDeliveryDto } from './dto/create-chowdeck-delivery.dto';
 
 @ApiTags('Orders')
 @Controller('orders')
@@ -73,6 +74,51 @@ export class OrdersController {
   })
   async create(@Body() dto: CreateOrderDto, @CurrentUser() buyer: User) {
     return this.ordersService.create(dto, buyer);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Post(':id/chowdeck/delivery')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Create a Chowdeck delivery for a paid order',
+    description: 'Creates the Relay delivery from the saved Chowdeck fee quote. Repeated calls return the existing delivery.',
+  })
+  @ApiBody({ type: CreateChowdeckDeliveryDto })
+  @ApiCreatedResponse({
+    description: 'Chowdeck delivery created or already exists',
+    schema: {
+      example: {
+        status: 'success',
+        message: 'Delivery created successfully',
+        data: {
+          id: 98765,
+          reference: 'DOJU-123e4567-e89b-12d3-a456-426614174000',
+          delivery_price: 80000,
+          delivery_pin: 4821,
+          tracking_url: 'https://track.chowdeck.com/...',
+          status: 'preparing',
+        },
+      },
+    },
+  })
+  async createChowdeckDelivery(
+    @Param('id', ParseUUIDPipe) orderId: string,
+    @Body() dto: CreateChowdeckDeliveryDto,
+    @CurrentUser() requester: User,
+  ) {
+    return this.ordersService.createChowdeckDelivery(orderId, dto, requester);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Get(':id/chowdeck/delivery')
+  @ApiBearerAuth()
+  @ApiOperation({ summary: 'Track the Chowdeck delivery for an order' })
+  @ApiOkResponse({ description: 'Current Chowdeck delivery status and details' })
+  async trackChowdeckDelivery(
+    @Param('id', ParseUUIDPipe) orderId: string,
+    @CurrentUser() requester: User,
+  ) {
+    return this.ordersService.trackChowdeckDelivery(orderId, requester);
   }
 
   @UseGuards(JwtAuthGuard)
@@ -442,6 +488,71 @@ export class OrdersController {
     example: 10,
     description: 'Items per page (minimum 1, maximum 100)',
   })
+  @ApiQuery({
+    name: 'orderId',
+    required: false,
+    type: String,
+    example: '123e4567-e89b-12d3-a456-426614174000',
+    description: 'Filter by order UUID',
+  })
+  @ApiQuery({
+    name: 'productId',
+    required: false,
+    type: String,
+    example: '123e4567-e89b-12d3-a456-426614174001',
+    description: 'Filter by product UUID',
+  })
+  @ApiQuery({
+    name: 'orderStatus',
+    required: false,
+    enum: OrderStatus,
+    example: OrderStatus.DELIVERED,
+  })
+  @ApiQuery({
+    name: 'paymentStatus',
+    required: false,
+    enum: PaymentStatus,
+    example: PaymentStatus.PAID,
+  })
+  @ApiQuery({
+    name: 'bulkOrderId',
+    required: false,
+    type: String,
+    example: 'bulk-123e4567-e89b-12d3-a456-426614174000',
+  })
+  @ApiQuery({
+    name: 'fromDate',
+    required: false,
+    type: String,
+    example: '2026-10-01',
+    description: 'Filter orders created on or after this date',
+  })
+  @ApiQuery({
+    name: 'toDate',
+    required: false,
+    type: String,
+    example: '2026-10-31',
+    description: 'Filter orders created on or before this date',
+  })
+  @ApiQuery({
+    name: 'search',
+    required: false,
+    type: String,
+    example: 'oxygen concentrator',
+    description: 'Search order ID, product name, tracking number, or buyer details',
+  })
+  @ApiQuery({
+    name: 'sortBy',
+    required: false,
+    enum: ['createdAt', 'updatedAt', 'totalPrice', 'orderStatus', 'paymentStatus'],
+    example: 'createdAt',
+  })
+  @ApiQuery({
+    name: 'sortOrder',
+    required: false,
+    enum: ['ASC', 'DESC'],
+    example: 'DESC',
+  })
   @ApiUnauthorizedResponse({
     description: 'Missing or invalid JWT token',
   })
@@ -449,8 +560,32 @@ export class OrdersController {
     @CurrentUser() seller: User,
     @Query('page', new DefaultValuePipe(1), ParseIntPipe) page: number,
     @Query('limit', new DefaultValuePipe(10), ParseIntPipe) limit: number,
+    @Query('orderId') orderId?: string,
+    @Query('productId') productId?: string,
+    @Query('orderStatus') orderStatus?: string,
+    @Query('paymentStatus') paymentStatus?: string,
+    @Query('bulkOrderId') bulkOrderId?: string,
+    @Query('fromDate') fromDate?: string,
+    @Query('toDate') toDate?: string,
+    @Query('search') search?: string,
+    @Query('sortBy') sortBy?: string,
+    @Query('sortOrder') sortOrder?: string,
   ) {
-    return this.ordersService.findBySeller({ sellerId: seller.id, page, limit });
+    return this.ordersService.findBySeller({
+      sellerId: seller.id,
+      page,
+      limit,
+      orderId,
+      productId,
+      orderStatus,
+      paymentStatus,
+      bulkOrderId,
+      fromDate,
+      toDate,
+      search,
+      sortBy,
+      sortOrder,
+    });
   }
 
   @UseGuards(JwtAuthGuard)

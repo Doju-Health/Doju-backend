@@ -1,6 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 
-const PRODUCT_SIZES = ['small', 'medium', 'large'] as const;
+const PRODUCT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'] as const;
 
 export class ProductResponseDto {
   @ApiProperty({
@@ -36,10 +36,20 @@ export class ProductResponseDto {
 
   @ApiProperty({
     enum: PRODUCT_SIZES,
-    example: 'medium',
-    description: 'Package size used for delivery pricing',
+    example: 'M',
+    description: 'Product size label',
   })
-  size: 'small' | 'medium' | 'large';
+  size: 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL' | 'XXXL';
+
+  @ApiProperty({ example: 2.5, description: 'Product weight in kilograms' })
+  weight: number;
+
+  @ApiProperty({
+    example: 'Blue',
+    description: 'Product color',
+    nullable: true,
+  })
+  color?: string;
 
   @ApiProperty({
     example: {
@@ -79,6 +89,18 @@ export class ProductResponseDto {
       id: 'user-123',
       fullName: 'John Doe',
       email: 'john@example.com',
+      phoneNumber: '+2348012345678',
+      companyName: 'Doju Medical Supplies',
+      address: '12 Adeola Odeku Street',
+      city: 'Lagos',
+      state: 'Lagos',
+      businessAddress: '12 Adeola Odeku Street',
+      businessCity: 'Lagos',
+      businessState: 'Lagos',
+      profileImageUrl: 'https://example.com/profile.jpg',
+      isActive: true,
+      createdAt: '2026-02-09T13:03:12.813Z',
+      updatedAt: '2026-07-26T17:25:59.645Z',
     },
     description: 'Seller information',
   })
@@ -86,6 +108,18 @@ export class ProductResponseDto {
     id: string;
     fullName: string;
     email: string;
+    phoneNumber?: string;
+    companyName?: string;
+    address?: string;
+    city?: string;
+    state?: string;
+    businessAddress?: string;
+    businessCity?: string;
+    businessState?: string;
+    profileImageUrl?: string;
+    isActive: boolean;
+    createdAt: Date;
+    updatedAt: Date;
   };
 
   @ApiProperty({
@@ -99,6 +133,13 @@ export class ProductResponseDto {
     description: 'Product approval status',
   })
   isApproved: boolean;
+
+  @ApiProperty({
+    example: 'Images were too blurry to verify the product',
+    description: 'Reason provided when the product is rejected',
+    nullable: true,
+  })
+  rejectionReason?: string | null;
 
   @ApiProperty({
     example: 4.8,

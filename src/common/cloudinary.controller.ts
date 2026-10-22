@@ -1,6 +1,7 @@
 import {
   Controller,
   Post,
+  Get,
   Delete,
   Param,
   Body,
@@ -8,6 +9,8 @@ import {
   UseInterceptors,
   UploadedFile,
   UploadedFiles,
+  NotFoundException,
+  BadRequestException,
 } from '@nestjs/common';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import {
@@ -24,13 +27,101 @@ import {
   ApiOkResponse,
 } from '@nestjs/swagger';
 import type { Express } from 'express';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Agent } from 'src/agents/entities/agent.entity';
+import { Ambassador } from 'src/ambassadors/entities/ambassador.entity';
+import { RolesGuard } from 'src/common/guards/role.guards';
+import { Roles } from 'src/common/decorators/roles.decorator';
+import { UserRole } from 'src/users/enums/user.enum';
 import { CloudinaryService } from './services/cloudinary.service';
 import { JwtAuthGuard } from 'src/auth/guards/jwt-auth-guard';
 
 @ApiTags('Cloudinary - Image Management')
 @Controller('cloudinary')
 export class CloudinaryController {
-  constructor(private readonly cloudinaryService: CloudinaryService) {}
+  constructor(
+    private readonly cloudinaryService: CloudinaryService,
+    @InjectRepository(Agent)
+    private readonly agentRepo: Repository<Agent>,
+    @InjectRepository(Ambassador)
+    private readonly ambassadorRepo: Repository<Ambassador>,
+  ) {}
+
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles(UserRole.ADMIN, UserRole.SUPER_ADMIN)
+  @Get('verification-document/:applicantType/:applicationId')
+  @ApiBearerAuth()
+  @ApiOperation({
+    summary: 'Get a short-lived link to an applicant verification document',
+    description:
+      'Use applicantType "agent" for an agent application or "ambassador" for an ambassador application.',
+  })
+  @ApiParam({
+    name: 'applicantType',
+    enum: ['agent', 'ambassador'],
+    example: 'agent',
+    description: 'Applicant type: agent or ambassador.',
+  })
+  @ApiParam({
+    name: 'applicationId',
+    example: '123',
+    description: 'Application ID for the selected applicant type.',
+  })
+  async getVerificationDocument(
+    @Param('applicantType') applicantType: string,
+    @Param('applicationId') applicationId: string,
+  ) {
+    if (applicantType === 'agent') {
+      const agentId = Number(applicationId);
+      if (!Number.isSafeInteger(agentId)) {
+        throw new BadRequestException('Invalid agent application ID');
+      }
+      const agent = await this.agentRepo.findOne({ where: { id: agentId } });
+      if (!agent) throw new NotFoundException('Agent application not found');
+      if (
+        !agent.identityDocument ||
+        !agent.identityDocumentFormat ||
+        !agent.identityDocumentResourceType
+      ) {
+        throw new NotFoundException('Verification document not uploaded');
+      }
+      return {
+        url: this.cloudinaryService.getVerificationDocumentDownloadUrl(
+          agent.identityDocument,
+          agent.identityDocumentResourceType,
+          agent.identityDocumentFormat,
+        ),
+        expiresInSeconds: 300,
+      };
+    }
+
+    if (applicantType === 'ambassador') {
+      const ambassador = await this.ambassadorRepo.findOne({
+        where: { id: applicationId },
+      });
+      if (!ambassador) {
+        throw new NotFoundException('Ambassador application not found');
+      }
+      if (
+        !ambassador.idCardPublicId ||
+        !ambassador.idCardFormat ||
+        !ambassador.idCardResourceType
+      ) {
+        throw new NotFoundException('Verification document not uploaded');
+      }
+      return {
+        url: this.cloudinaryService.getVerificationDocumentDownloadUrl(
+          ambassador.idCardPublicId,
+          ambassador.idCardResourceType,
+          ambassador.idCardFormat,
+        ),
+        expiresInSeconds: 300,
+      };
+    }
+
+    throw new BadRequestException('applicantType must be agent or ambassador');
+  }
 
   @UseGuards(JwtAuthGuard)
   @UseInterceptors(FileInterceptor('file'))
