@@ -19,7 +19,7 @@ async function bootstrap() {
 
   // Enable CORS
   app.enableCors({
-    origin: [process.env.FRONTEND_URL, 'http://localhost:8080' , 'https://waitlist.dojuhealth.com'],
+    origin: [process.env.FRONTEND_URL, 'http://localhost:8080' , 'http://dev.dojuhealth.com', 'https://waitlist.dojuhealth.com'],
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
